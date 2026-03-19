@@ -1,0 +1,8 @@
+Extract a strict JSON object with:
+- priority
+- subject
+- deadline
+- actor
+- action_requested
+- channel
+- tone

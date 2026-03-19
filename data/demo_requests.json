@@ -1,0 +1,22 @@
+[
+  {"text": "Bonjour, notre export KPI plante depuis hier et le reporting hebdomadaire est bloque. Merci de nous aider rapidement.", "input_type": "email", "mode": "assisted"},
+  {"text": "Peux-tu preparer un mini rapport sur les performances commerciales de mars pour le comite de direction ?", "input_type": "text", "mode": "assisted"},
+  {"text": "Subject: Renewal proposal\nClient asks for updated pricing and a concise response before tomorrow.", "input_type": "email", "mode": "suggestion"},
+  {"text": "Nous avons besoin d'un recap des incidents support de la semaine avec les priorites et actions recommandees.", "input_type": "text", "mode": "assisted"},
+  {"text": "La facture 2026-0319 semble incorrecte, merci de verifier le montant et nous indiquer la marche a suivre.", "input_type": "email", "mode": "suggestion"},
+  {"text": "Can you summarize this customer note and draft a professional reply? They cannot access the dashboard after the latest release.", "input_type": "text", "mode": "assisted"},
+  {"text": "Merci de produire un rapport court des KPI logistiques avec deadline 2026-03-21.", "input_type": "text", "mode": "assisted"},
+  {"text": "Bonjour, un collaborateur demande une attestation RH et souhaite savoir le delai de traitement.", "input_type": "email", "mode": "suggestion"},
+  {"text": "Critical incident: our billing API returns errors on every invoice creation since this morning.", "input_type": "email", "mode": "assisted"},
+  {"text": "Prepare a short executive report about weekly support volume, top blockers, and next actions.", "input_type": "text", "mode": "assisted"},
+  {"text": "Le client demande un devis complementaire et une reponse avant demain.", "input_type": "email", "mode": "suggestion"},
+  {"text": "Pouvez-vous resumer cet email et proposer une action ? L'utilisateur n'arrive plus a exporter le dashboard.", "input_type": "email", "mode": "assisted"},
+  {"text": "Merci de preparer le reporting mensuel RH avec les chiffres de conges et absences.", "input_type": "text", "mode": "assisted"},
+  {"text": "We need a concise answer to a prospect asking for a demo and pricing details.", "input_type": "email", "mode": "suggestion"},
+  {"text": "Subject: Compliance request\nMerci de nous transmettre un resume des actions realisees et des pieces attendues.", "input_type": "email", "mode": "assisted"},
+  {"text": "Notre export client est tres lent depuis aujourd'hui, pouvez-vous investiguer et nous repondre ?", "input_type": "email", "mode": "assisted"},
+  {"text": "Generate a markdown report from this note: monthly KPIs improved, but churn is rising and needs closer follow-up.", "input_type": "text", "mode": "suggestion"},
+  {"text": "Nous avons un besoin administratif: mise a jour de contrat et recap des prochaines etapes.", "input_type": "text", "mode": "assisted"},
+  {"text": "Please reply to the customer, confirm receipt of their ticket, and explain the next support steps.", "input_type": "email", "mode": "suggestion"},
+  {"text": "Peux-tu classer cette demande et produire une synthese: le directeur souhaite un point rapide sur les KPI ventes et support.", "input_type": "text", "mode": "assisted"}
+]

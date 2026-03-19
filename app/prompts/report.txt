@@ -1,0 +1,4 @@
+Generate a mini markdown report with fixed sections:
+- Contexte
+- Points cles
+- Actions recommandees

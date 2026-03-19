@@ -1,0 +1,11 @@
+Classify the request into one of:
+- support
+- reporting
+- commercial
+- administratif
+- autre
+
+Return:
+- category
+- confidence
+- rationale
