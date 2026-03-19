@@ -1,12 +1,35 @@
 from app.models.schemas import ScoreResult
 from app.services.llm_engine import complete_json
+from app.services.prompt_loader import load_prompt
 
 
-def compute_automation_score(category: str, confidence: float, priority: str, mode: str) -> ScoreResult:
+SCORE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "automation_score": {"type": "integer"},
+        "risk_level": {"type": "string", "enum": ["low", "medium", "high"]},
+        "estimated_time_saved_minutes": {"type": "integer"},
+        "autonomy_recommendation": {"type": "string", "enum": ["ready_for_assisted", "human_review", "manual_only"]},
+        "rationale": {"type": "string"},
+    },
+    "required": [
+        "automation_score",
+        "risk_level",
+        "estimated_time_saved_minutes",
+        "autonomy_recommendation",
+        "rationale",
+    ],
+    "additionalProperties": False,
+}
+
+
+def compute_automation_score(category: str, confidence: float, priority: str, mode: str, request_id: str = "") -> ScoreResult:
     llm_payload = complete_json(
-        "Assess automation readiness. Return JSON with automation_score, risk_level, estimated_time_saved_minutes, "
-        "autonomy_recommendation, rationale.",
+        load_prompt("score"),
         f"Category={category}\nConfidence={confidence}\nPriority={priority}\nMode={mode}",
+        schema_name="automation_score",
+        schema=SCORE_SCHEMA,
+        request_id=request_id,
     )
     if llm_payload:
         return ScoreResult(

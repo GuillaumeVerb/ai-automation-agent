@@ -1,1 +1,13 @@
-Assess automation score, risk level, estimated time saved, and autonomy recommendation.
+Assess automation readiness for a human-in-the-loop workflow.
+
+Return:
+- automation_score: integer from 0 to 100
+- risk_level: low | medium | high
+- estimated_time_saved_minutes: integer
+- autonomy_recommendation: ready_for_assisted | human_review | manual_only
+- rationale: short explanation
+
+Instructions:
+- Lower the score when confidence is weak or priority is high.
+- High-risk cases should stay human reviewed.
+- Keep rationale concise and operational.

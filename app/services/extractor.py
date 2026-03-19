@@ -3,11 +3,27 @@ from typing import Optional
 
 from app.models.schemas import ExtractedFields
 from app.services.llm_engine import complete_json
+from app.services.prompt_loader import load_prompt
 
 
 PRIORITY_KEYWORDS = {
     "high": ["urgent", "asap", "critique", "bloquant", "today", "aujourd"],
     "medium": ["soon", "demain", "cette semaine", "important"],
+}
+
+EXTRACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "priority": {"type": "string", "enum": ["low", "medium", "high"]},
+        "subject": {"type": "string"},
+        "deadline": {"type": ["string", "null"]},
+        "actor": {"type": ["string", "null"]},
+        "action_requested": {"type": "string", "enum": ["prepare_reply", "prepare_report", "triage_issue", "assess_request"]},
+        "channel": {"type": "string", "enum": ["email", "text", "json"]},
+        "tone": {"type": "string", "enum": ["urgent", "polite", "neutral"]},
+    },
+    "required": ["priority", "subject", "deadline", "actor", "action_requested", "channel", "tone"],
+    "additionalProperties": False,
 }
 
 
@@ -62,11 +78,13 @@ def _extract_tone(text: str) -> str:
     return "neutral"
 
 
-def extract_fields(text: str) -> ExtractedFields:
+def extract_fields(text: str, request_id: str = "") -> ExtractedFields:
     llm_payload = complete_json(
-        "Extract JSON with keys priority, subject, deadline, actor, action_requested, channel, tone. "
-        "Use null where unknown.",
+        load_prompt("extraction"),
         text,
+        schema_name="request_extraction",
+        schema=EXTRACTION_SCHEMA,
+        request_id=request_id,
     )
     if llm_payload:
         return ExtractedFields(

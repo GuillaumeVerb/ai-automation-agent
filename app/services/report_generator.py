@@ -1,11 +1,13 @@
 from app.models.schemas import ExtractedFields
 from app.services.llm_engine import complete_text
+from app.services.prompt_loader import load_prompt
 
 
-def generate_report(text: str, extracted_fields: ExtractedFields) -> str:
+def generate_report(text: str, extracted_fields: ExtractedFields, request_id: str = "") -> str:
     llm_report = complete_text(
-        "Generate a compact markdown report in French with sections Contexte, Points cles, Actions recommandees.",
+        load_prompt("report"),
         f"Request:\n{text}\n\nStructured fields:\n{extracted_fields.model_dump_json()}",
+        request_id=request_id,
     )
     if llm_report:
         return llm_report.strip()

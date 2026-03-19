@@ -1,6 +1,7 @@
 from typing import Dict, List
 
 from app.services.llm_engine import complete_json
+from app.services.prompt_loader import load_prompt
 
 
 CATEGORY_RULES: Dict[str, List[str]] = {
@@ -10,12 +11,26 @@ CATEGORY_RULES: Dict[str, List[str]] = {
     "administratif": ["invoice", "facture", "contrat", "rh", "conge", "admin", "compliance"],
 }
 
+CLASSIFICATION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "category": {"type": "string", "enum": ["support", "reporting", "commercial", "administratif", "autre"]},
+        "confidence": {"type": "number"},
+        "rationale": {"type": "string"},
+        "signals": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["category", "confidence", "rationale", "signals"],
+    "additionalProperties": False,
+}
 
-def classify_request(text: str) -> tuple[str, float, str, List[str]]:
+
+def classify_request(text: str, request_id: str = "") -> tuple[str, float, str, List[str]]:
     llm_payload = complete_json(
-        "Classify the request into support, reporting, commercial, administratif, or autre. "
-        "Return JSON with keys category, confidence, rationale, and signals.",
+        load_prompt("classification"),
         text,
+        schema_name="request_classification",
+        schema=CLASSIFICATION_SCHEMA,
+        request_id=request_id,
     )
     if llm_payload:
         category = str(llm_payload.get("category", "autre"))

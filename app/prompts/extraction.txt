@@ -1,8 +1,15 @@
-Extract a strict JSON object with:
-- priority
-- subject
-- deadline
-- actor
-- action_requested
-- channel
-- tone
+Extract a strict JSON object for an internal operations copilot.
+
+Fields:
+- priority: low | medium | high
+- subject: concise business subject line
+- deadline: string or null
+- actor: string or null
+- action_requested: prepare_reply | prepare_report | triage_issue | assess_request
+- channel: email | text | json
+- tone: urgent | polite | neutral
+
+Instructions:
+- Use null when a value is not grounded in the request.
+- Do not invent names, deadlines, or facts.
+- Keep subject short and readable.

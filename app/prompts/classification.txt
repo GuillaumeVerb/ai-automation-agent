@@ -1,11 +1,16 @@
-Classify the request into one of:
+You are classifying a business request for a narrow automation workflow.
+
+Allowed categories:
 - support
 - reporting
 - commercial
 - administratif
 - autre
 
-Return:
-- category
-- confidence
-- rationale
+Instructions:
+- Choose exactly one category.
+- Base your answer only on the provided text.
+- Prefer "autre" if the signal is mixed or weak.
+- Confidence must be between 0 and 1.
+- Keep rationale short and concrete.
+- Signals must be short phrases or keywords taken from the request.

@@ -1,1 +1,8 @@
-Write a professional and concise reply draft for the request.
+Write a professional email reply in French.
+
+Instructions:
+- Be concise and reassuring.
+- Acknowledge the request.
+- Mention the next step or expected follow-up.
+- Do not promise actions that were not requested or validated.
+- Do not mention AI, automation, or internal tooling.

@@ -66,16 +66,16 @@ def create_run(session: Session, payload: RunCreate) -> tuple[Run, RunSummaryRes
     clean_text, request_id = preprocess_text(payload.text)
     _append_event(timeline, "preprocess", "Input nettoye et request_id genere.")
 
-    category, confidence, rationale, signals = classify_request(clean_text)
+    category, confidence, rationale, signals = classify_request(clean_text, request_id=request_id)
     _append_event(timeline, "classification", f"Demande classee en {category} avec confiance {confidence}.")
 
-    extracted_fields = extract_fields(clean_text)
+    extracted_fields = extract_fields(clean_text, request_id=request_id)
     _append_event(timeline, "extraction", "Champs metier extraits au format structure.")
 
-    summary = summarize_request(clean_text)
+    summary = summarize_request(clean_text, request_id=request_id)
     _append_event(timeline, "summary", "Resume concis genere.")
 
-    score = compute_automation_score(category, confidence, extracted_fields.priority, payload.mode)
+    score = compute_automation_score(category, confidence, extracted_fields.priority, payload.mode, request_id=request_id)
     strategy, output_type = _select_strategy(
         category,
         extracted_fields.action_requested,
@@ -86,9 +86,9 @@ def create_run(session: Session, payload: RunCreate) -> tuple[Run, RunSummaryRes
     _append_event(timeline, "routing", f"Strategie retenue: {', '.join(strategy)}.")
 
     if output_type == "email_reply":
-        generated_output = generate_email_reply(clean_text, extracted_fields)
+        generated_output = generate_email_reply(clean_text, extracted_fields, request_id=request_id)
     else:
-        generated_output = generate_report(clean_text, extracted_fields)
+        generated_output = generate_report(clean_text, extracted_fields, request_id=request_id)
     _append_event(timeline, "generation", f"Sortie de type {output_type} generee.")
 
     preference_hints = get_preference_hints(session, category)

@@ -2,3 +2,9 @@ Generate a mini markdown report with fixed sections:
 - Contexte
 - Points cles
 - Actions recommandees
+
+Instructions:
+- Write in French.
+- Keep the report compact and executive-friendly.
+- Use bullets where useful.
+- Only use facts supported by the input and structured fields.

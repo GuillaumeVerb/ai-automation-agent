@@ -38,6 +38,32 @@ streamlit run ui/streamlit_app.py
 
 L'API démarre sur `http://127.0.0.1:8000` et l'UI consomme cette base par défaut.
 
+## OpenAI réel
+
+Le projet peut appeler l'API OpenAI via `v1/responses` avec Structured Outputs pour les étapes JSON.
+
+Variables utiles:
+
+```bash
+APP_LLM_ENABLED=true
+APP_LLM_PROVIDER=openai
+APP_LLM_API_KEY=sk-...
+APP_LLM_MODEL=gpt-4.1-mini
+APP_LLM_BASE_URL=https://api.openai.com/v1
+```
+
+Si ces variables ne sont pas définies, le système retombe automatiquement sur le moteur heuristique local.
+
+## Docker
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+- API: `http://127.0.0.1:8000`
+- UI: `http://127.0.0.1:8501`
+
 ## Endpoints
 
 - `POST /api/v1/runs`
@@ -60,5 +86,6 @@ L'API démarre sur `http://127.0.0.1:8000` et l'UI consomme cette base par défa
 
 - Le provider LLM est configurable, mais le MVP tourne en mode heuristique local.
 - Un provider OpenAI-compatible peut etre active via `APP_LLM_ENABLED=true`, `APP_LLM_API_KEY`, `APP_LLM_MODEL` et `APP_LLM_BASE_URL`.
+- Les étapes structurées utilisent un schéma JSON strict quand OpenAI est activé.
 - Aucun email réel n'est envoyé.
 - Aucune action irréversible n'est exécutée.

@@ -1,8 +1,9 @@
 from app.services.llm_engine import complete_text
+from app.services.prompt_loader import load_prompt
 
 
-def summarize_request(text: str) -> str:
-    llm_summary = complete_text("Summarize the request in 2 to 4 concise lines.", text)
+def summarize_request(text: str, request_id: str = "") -> str:
+    llm_summary = complete_text(load_prompt("summary"), text, request_id=request_id)
     if llm_summary:
         return llm_summary.strip()
     cleaned = text.strip()

@@ -1,11 +1,13 @@
 from app.models.schemas import ExtractedFields
 from app.services.llm_engine import complete_text
+from app.services.prompt_loader import load_prompt
 
 
-def generate_email_reply(text: str, extracted_fields: ExtractedFields, style: str = "professional") -> str:
+def generate_email_reply(text: str, extracted_fields: ExtractedFields, style: str = "professional", request_id: str = "") -> str:
     llm_reply = complete_text(
-        "Write a concise professional email reply in French. Keep it clear, reassuring, and action-oriented.",
+        load_prompt("email_reply"),
         f"Request:\n{text}\n\nStructured fields:\n{extracted_fields.model_dump_json()}",
+        request_id=request_id,
     )
     if llm_reply:
         return llm_reply.strip()

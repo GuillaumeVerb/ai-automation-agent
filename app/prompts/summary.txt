@@ -1,1 +1,6 @@
-Summarize the request in 2 to 4 concise lines.
+Summarize the request in French in 2 to 4 short lines.
+
+Instructions:
+- Mention the core issue or objective.
+- Mention urgency if present.
+- Do not add facts that are not in the request.
