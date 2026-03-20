@@ -1,72 +1,93 @@
-from app.models.schemas import ScoreResult
-from app.services.llm_engine import complete_json
-from app.services.prompt_loader import load_prompt
+from app.models.schemas import ExtractedFields, ScoreResult
 
 
-SCORE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "automation_score": {"type": "integer"},
-        "risk_level": {"type": "string", "enum": ["low", "medium", "high"]},
-        "estimated_time_saved_minutes": {"type": "integer"},
-        "autonomy_recommendation": {"type": "string", "enum": ["ready_for_assisted", "human_review", "manual_only"]},
-        "rationale": {"type": "string"},
-    },
-    "required": [
-        "automation_score",
-        "risk_level",
-        "estimated_time_saved_minutes",
-        "autonomy_recommendation",
-        "rationale",
-    ],
-    "additionalProperties": False,
-}
+def _compute_confidence_score(confidence: float) -> int:
+    return max(0, min(int(round(confidence * 100)), 100))
 
 
-def compute_automation_score(category: str, confidence: float, priority: str, mode: str, request_id: str = "") -> ScoreResult:
-    llm_payload = complete_json(
-        load_prompt("score"),
-        f"Category={category}\nConfidence={confidence}\nPriority={priority}\nMode={mode}",
-        schema_name="automation_score",
-        schema=SCORE_SCHEMA,
-        request_id=request_id,
-    )
-    if llm_payload:
-        return ScoreResult(
-            automation_score=int(llm_payload.get("automation_score", 50)),
-            risk_level=str(llm_payload.get("risk_level", "medium")),
-            estimated_time_saved_minutes=int(llm_payload.get("estimated_time_saved_minutes", 10)),
-            autonomy_recommendation=str(llm_payload.get("autonomy_recommendation", "human_review")),
-            rationale=str(llm_payload.get("rationale", "Score fourni par le provider configure.")),
-        )
-    base = int(confidence * 100)
+def _compute_risk_score(category: str, priority: str, mode: str) -> tuple[int, str]:
+    score = 90
     if category == "support":
-        base -= 10
-    if priority == "high":
-        base -= 20
-    elif priority == "medium":
-        base -= 8
-    if mode == "suggestion":
-        base = min(base + 5, 100)
+        score -= 10
+    elif category == "administratif":
+        score -= 5
 
-    score = max(15, min(base, 95))
+    if priority == "high":
+        score -= 35
+    elif priority == "medium":
+        score -= 15
+
+    if mode == "low_risk_auto":
+        score -= 10
+    elif mode == "assisted":
+        score -= 3
+
+    score = max(5, min(score, 100))
     if score >= 75:
-        risk = "low"
-        autonomy = "ready_for_assisted"
-        saved = 20
-    elif score >= 50:
-        risk = "medium"
-        autonomy = "human_review"
-        saved = 12
+        return score, "low"
+    if score >= 45:
+        return score, "medium"
+    return score, "high"
+
+
+def _compute_completeness_score(extracted_fields: ExtractedFields) -> int:
+    score = 55
+    if extracted_fields.subject and extracted_fields.subject != "Demande sans sujet explicite":
+        score += 20
+    if extracted_fields.action_requested and extracted_fields.action_requested != "assess_request":
+        score += 10
+    if extracted_fields.deadline:
+        score += 5
+    if extracted_fields.actor:
+        score += 5
+    if extracted_fields.tone in {"urgent", "polite", "neutral"}:
+        score += 5
+    return max(0, min(score, 100))
+
+
+def _estimate_time_saved(global_score: int) -> int:
+    if global_score >= 80:
+        return 22
+    if global_score >= 55:
+        return 12
+    return 6
+
+
+def compute_automation_score(
+    category: str,
+    confidence: float,
+    extracted_fields: ExtractedFields,
+    mode: str,
+    request_id: str = "",
+) -> ScoreResult:
+    del request_id
+    confidence_score = _compute_confidence_score(confidence)
+    risk_score, risk_level = _compute_risk_score(category, extracted_fields.priority, mode)
+    completeness_score = _compute_completeness_score(extracted_fields)
+    global_score = int(round(confidence_score * 0.45 + risk_score * 0.35 + completeness_score * 0.20))
+    global_score = max(0, min(global_score, 100))
+
+    if global_score >= 80 and risk_level == "low":
+        autonomy_mode = "low_risk_auto"
+    elif global_score >= 55:
+        autonomy_mode = "assisted"
     else:
-        risk = "high"
-        autonomy = "manual_only"
-        saved = 5
+        autonomy_mode = "suggestion_only"
+
+    estimated_time_saved_minutes = _estimate_time_saved(global_score)
+    rationale = (
+        f"Score global {global_score}/100 calcule via confiance={confidence_score}, "
+        f"risque={risk_score} et completude={completeness_score} pour une demande {category} "
+        f"en priorite {extracted_fields.priority} sous mode {mode}."
+    )
 
     return ScoreResult(
-        automation_score=score,
-        risk_level=risk,
-        estimated_time_saved_minutes=saved,
-        autonomy_recommendation=autonomy,
-        rationale=f"Score calcule a partir de la confiance, de la categorie {category}, de la priorite {priority} et du mode {mode}.",
+        global_score=global_score,
+        confidence_score=confidence_score,
+        risk_score=risk_score,
+        completeness_score=completeness_score,
+        risk_level=risk_level,
+        autonomy_mode=autonomy_mode,
+        estimated_time_saved_minutes=estimated_time_saved_minutes,
+        rationale=rationale,
     )

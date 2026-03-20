@@ -10,6 +10,7 @@ class Feedback(SQLModel, table=True):
     run_id: str = Field(index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), nullable=False)
     field_name: str
+    feedback_type: str = "extracted_field"
     previous_value: Optional[str] = None
     corrected_value: str
     comment: Optional[str] = None

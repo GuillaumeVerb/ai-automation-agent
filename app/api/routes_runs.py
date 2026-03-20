@@ -20,7 +20,7 @@ def create_run_endpoint(payload: RunCreate, session: Session = Depends(get_sessi
 
 @router.get("", response_model=List[RunDetailResponse])
 def list_runs_endpoint(session: Session = Depends(get_session)) -> List[RunDetailResponse]:
-    return [to_run_detail(run) for run in list_runs(session)]
+    return [to_run_detail(session, run) for run in list_runs(session)]
 
 
 @router.get("/{run_id}", response_model=RunDetailResponse)
@@ -28,7 +28,7 @@ def get_run_endpoint(run_id: str, session: Session = Depends(get_session)) -> Ru
     run = get_run(session, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    return to_run_detail(run)
+    return to_run_detail(session, run)
 
 
 @router.post("/{run_id}/approve", response_model=ApprovalResponse)

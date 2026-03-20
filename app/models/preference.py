@@ -8,5 +8,6 @@ class Preference(SQLModel, table=True):
     id: str = Field(default_factory=lambda: f"pref_{uuid4().hex}", primary_key=True)
     key: str = Field(index=True, unique=True)
     value: str
+    scope: str = Field(index=True, default="global")
     source: str = "feedback"
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), nullable=False)

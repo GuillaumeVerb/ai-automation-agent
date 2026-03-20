@@ -23,7 +23,9 @@ class Run(SQLModel, table=True):
     explainability_json: str
     timeline_json: str
     automation_score: int
+    score_breakdown_json: str = "{}"
     risk_level: str
+    autonomy_mode: str = "suggestion_only"
     estimated_time_saved_minutes: int = 0
     autonomy_recommendation: str = "human_review"
     status: str = "pending_review"

@@ -1,38 +1,28 @@
 import json
 import time
-from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Dict, Optional
 
 from sqlmodel import Session
 
 from app.models.run import Run
-from app.models.schemas import Explainability, RunCreate, RunSummaryResponse, TimelineEvent
+from app.models.schemas import ExtractedFields, RunCreate, RunSummaryResponse
 from app.services.classifier import classify_request
 from app.services.email_generator import generate_email_reply
+from app.services.explainability import build_explainability
 from app.services.extractor import extract_fields
-from app.services.persistence import create_run_record, get_preference_hints
+from app.services.persistence import create_run_record, get_preference_hints, get_preference_map
 from app.services.preprocess import preprocess_text
 from app.services.report_generator import generate_report
 from app.services.scorer import compute_automation_score
 from app.services.summarizer import summarize_request
-
-
-def _append_event(events: List[TimelineEvent], step: str, detail: str) -> None:
-    events.append(
-        TimelineEvent(
-            step=step,
-            status="completed",
-            detail=detail,
-            timestamp=datetime.now(timezone.utc),
-        )
-    )
+from app.services.timeline import TimelineTracker
 
 
 def _select_strategy(
     category: str,
     action_requested: str,
     risk_level: str,
-    mode: str,
+    recommended_mode: str,
     preferred_output: Optional[str] = None,
 ) -> tuple[list[str], str]:
     strategy = ["summarize"]
@@ -46,62 +36,101 @@ def _select_strategy(
     elif category in {"support", "commercial"} or action_requested == "prepare_reply":
         strategy.append("generate_email_reply")
         output_type = "email_reply"
-    elif category == "reporting" or action_requested == "prepare_report":
-        strategy.append("generate_report")
-        output_type = "report"
     else:
         strategy.append("generate_report")
         output_type = "report"
 
-    if risk_level != "low" or mode != "suggestion":
+    if risk_level != "low" or recommended_mode != "low_risk_auto":
         strategy.append("human_review")
     strategy.append("log_run")
     return strategy, output_type
 
 
+def _apply_preference_hints(extracted_fields: ExtractedFields, preference_map: Dict[str, str], category: str) -> ExtractedFields:
+    tone_key = f"tone:{category}"
+    if tone_key in preference_map:
+        return extracted_fields.model_copy(update={"tone": preference_map[tone_key]})
+    return extracted_fields
+
+
 def create_run(session: Session, payload: RunCreate) -> tuple[Run, RunSummaryResponse]:
     started = time.perf_counter()
-    timeline: List[TimelineEvent] = []
+    timeline = TimelineTracker()
+    timeline.add_instant("input_received", "Input recu par l'API.", payload.input_type)
 
+    preprocess_started = time.perf_counter()
     clean_text, request_id = preprocess_text(payload.text)
-    _append_event(timeline, "preprocess", "Input nettoye et request_id genere.")
+    timeline.add_step("preprocess", "Input nettoye et request_id genere.", request_id, preprocess_started)
 
+    classification_started = time.perf_counter()
     category, confidence, rationale, signals = classify_request(clean_text, request_id=request_id)
-    _append_event(timeline, "classification", f"Demande classee en {category} avec confiance {confidence}.")
+    timeline.add_step(
+        "classification",
+        f"Demande classee en {category} avec confiance {confidence}.",
+        f"{category} ({confidence:.2f})",
+        classification_started,
+    )
 
+    extracted_fields_started = time.perf_counter()
     extracted_fields = extract_fields(clean_text, request_id=request_id)
-    _append_event(timeline, "extraction", "Champs metier extraits au format structure.")
+    timeline.add_step(
+        "extraction",
+        "Champs metier extraits au format structure.",
+        f"priorite={extracted_fields.priority}, action={extracted_fields.action_requested}",
+        extracted_fields_started,
+    )
+
+    preference_map = get_preference_map(session, category)
+    extracted_fields = _apply_preference_hints(extracted_fields, preference_map, category)
+    preference_hints = get_preference_hints(session, category)
 
     summary = summarize_request(clean_text, request_id=request_id)
-    _append_event(timeline, "summary", "Resume concis genere.")
 
-    score = compute_automation_score(category, confidence, extracted_fields.priority, payload.mode, request_id=request_id)
+    generation_started = time.perf_counter()
+    score = compute_automation_score(category, confidence, extracted_fields, payload.mode, request_id=request_id)
     strategy, output_type = _select_strategy(
         category,
         extracted_fields.action_requested,
         score.risk_level,
-        payload.mode,
+        score.autonomy_mode,
         payload.preferred_output,
     )
-    _append_event(timeline, "routing", f"Strategie retenue: {', '.join(strategy)}.")
-
     if output_type == "email_reply":
         generated_output = generate_email_reply(clean_text, extracted_fields, request_id=request_id)
     else:
         generated_output = generate_report(clean_text, extracted_fields, request_id=request_id)
-    _append_event(timeline, "generation", f"Sortie de type {output_type} generee.")
+    timeline.add_step(
+        "generation",
+        f"Sortie de type {output_type} generee.",
+        output_type,
+        generation_started,
+    )
 
-    preference_hints = get_preference_hints(session, category)
-    _append_event(timeline, "review", "Sortie envoyee en validation humaine.")
-    _append_event(timeline, "persistence", "Run journalise en base.")
-
-    explainability = Explainability(
+    scoring_started = time.perf_counter()
+    explainability = build_explainability(
         category=category,
         confidence=confidence,
-        signals=signals or ["general_request"],
+        signals=signals,
         strategy=strategy,
-        rationale=rationale,
+        classifier_rationale=rationale,
+        risk_level=score.risk_level,
+        requested_mode=payload.mode,
+        recommended_mode=score.autonomy_mode,
     )
+    timeline.add_step(
+        "scoring",
+        "Score d'automatisation et recommandation d'autonomie calcules.",
+        f"score={score.global_score}, mode={score.autonomy_mode}",
+        scoring_started,
+    )
+
+    timeline.add_instant(
+        "human_validation",
+        "Sortie envoyee en validation humaine.",
+        "Validation en attente" if score.autonomy_mode != "low_risk_auto" else "Mode auto simule visible",
+        status="pending",
+    )
+    timeline.add_instant("persistence", "Run journalise en base.", "Persisted")
 
     latency_ms = int((time.perf_counter() - started) * 1000)
     estimated_cost = round(0.0004 + len(clean_text) / 100000, 5)
@@ -120,11 +149,13 @@ def create_run(session: Session, payload: RunCreate) -> tuple[Run, RunSummaryRes
         output_type=output_type,
         strategy_json=json.dumps(strategy),
         explainability_json=explainability.model_dump_json(),
-        timeline_json=json.dumps([event.model_dump(mode="json") for event in timeline], default=str),
-        automation_score=score.automation_score,
+        timeline_json=json.dumps([event.model_dump(mode="json") for event in timeline.events], default=str),
+        automation_score=score.global_score,
+        score_breakdown_json=json.dumps(score.model_dump()),
         risk_level=score.risk_level,
+        autonomy_mode=score.autonomy_mode,
         estimated_time_saved_minutes=score.estimated_time_saved_minutes,
-        autonomy_recommendation=score.autonomy_recommendation,
+        autonomy_recommendation=score.autonomy_mode,
         status="pending_review",
         latency_ms=latency_ms,
         estimated_cost=estimated_cost,
@@ -149,7 +180,6 @@ def regenerate_run(
     strategy_hint: Optional[str] = None,
     preferred_output: Optional[str] = None,
 ) -> tuple[Run, RunSummaryResponse]:
-    mode = source_run.mode
     requested_output = preferred_output
     if not requested_output and strategy_hint:
         if "email" in strategy_hint.lower():
@@ -160,7 +190,7 @@ def regenerate_run(
     payload = RunCreate(
         text=source_run.input_text,
         input_type=source_run.input_type,
-        mode=mode,
+        mode=source_run.mode,
         preferred_output=requested_output,
     )
     return create_run(session, payload)

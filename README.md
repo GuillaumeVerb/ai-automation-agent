@@ -1,13 +1,13 @@
-# AI Automation Agent MVP
+# AI Automation Agent MVP + V2
 
-AI Automation Agent est un MVP portfolio centré sur un cas d'usage simple:
-tri, résumé et génération de sorties utiles à partir d'un email ou d'une demande métier.
+AI Automation Agent est un MVP portfolio centre sur un cas d'usage simple:
+tri, resume et generation de sorties utiles a partir d'un email ou d'une demande metier.
 
-Le projet privilégie:
+Le projet privilegie:
 - une architecture explicable,
-- un workflow étroit et observable,
+- un workflow etroit et observable,
 - une validation humaine,
-- des intégrations externes simulées.
+- des integrations externes simulees.
 
 ## Stack
 
@@ -16,14 +16,57 @@ Le projet privilégie:
 - Streamlit
 - Tests Pytest
 
-## Features
+## Features MVP
 
-- Création de runs via API
-- Classification, extraction et résumé
-- Routage semi-déterministe vers réponse email ou mini report
+- Creation de runs via API
+- Classification, extraction et resume
+- Routage semi-deterministe vers reponse email ou mini report
 - Explainability panel, timeline et automation score
-- Feedback utilisateur et mémoire légère via `preferences`
+- Feedback utilisateur et memoire legere via `preferences`
 - Historique des runs et analytics simples
+
+## V2 Features
+
+- Explainability panel enrichi:
+  - categorie detectee
+  - confiance
+  - signaux
+  - strategie choisie
+  - justification concise
+  - niveau de risque
+- Execution timeline detaillee:
+  - input_received
+  - preprocess
+  - classification
+  - extraction
+  - generation
+  - scoring
+  - human_validation
+  - persistence
+  - avec statut, duree et sortie courte par etape
+- Automation Score V2:
+  - score global
+  - sous-score confiance
+  - sous-score risque
+  - sous-score completude
+  - recommandation d'autonomie
+  - temps economise estime
+- Modes d'autonomie visibles:
+  - `suggestion_only`
+  - `assisted`
+  - `low_risk_auto`
+- Feedback learning simple:
+  - corrections de categorie, priorite, ton, champs extraits
+  - stockage en base
+  - reutilisation heuristique transparente sur les runs suivants
+- Analytics page legere:
+  - total runs
+  - taux d'approbation
+  - repartition par categorie
+  - score moyen
+  - top feedbacks
+  - latence moyenne par etape
+  - distribution des modes d'autonomie
 
 ## Lancement
 
@@ -31,16 +74,28 @@ Le projet privilégie:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+rm -f agent.db
 python -m app.db.init_db
 uvicorn app.main:app --reload
 streamlit run ui/streamlit_app.py
 ```
 
-L'API démarre sur `http://127.0.0.1:8000` et l'UI consomme cette base par défaut.
+L'API demarre sur `http://127.0.0.1:8000` et l'UI consomme cette base par defaut.
 
-## OpenAI réel
+## Important V2 SQLite
 
-Le projet peut appeler l'API OpenAI via `v1/responses` avec Structured Outputs pour les étapes JSON.
+La V2 ajoute plusieurs champs au schema SQLite sans systeme de migration.
+
+Pour un environnement local propre:
+
+```bash
+rm -f agent.db
+python -m app.db.init_db
+```
+
+## OpenAI reel
+
+Le projet peut appeler l'API OpenAI via `v1/responses` avec Structured Outputs pour les etapes JSON.
 
 Variables utiles:
 
@@ -52,7 +107,7 @@ APP_LLM_MODEL=gpt-4.1-mini
 APP_LLM_BASE_URL=https://api.openai.com/v1
 ```
 
-Si ces variables ne sont pas définies, le système retombe automatiquement sur le moteur heuristique local.
+Si ces variables ne sont pas definies, le systeme retombe automatiquement sur le moteur heuristique local.
 
 ## Docker
 
@@ -72,20 +127,39 @@ docker compose up --build
 - `POST /api/v1/runs/{run_id}/approve`
 - `POST /api/v1/runs/{run_id}/regenerate`
 - `POST /api/v1/runs/{run_id}/feedback`
+- `GET /api/v1/runs/{run_id}/feedback`
 - `GET /api/v1/metrics`
 
 ## Demo flow
 
 1. Coller un email ou un texte dans l'UI.
-2. Lancer l'analyse.
-3. Vérifier classification, résumé, champs extraits, timeline et score.
-4. Approuver ou corriger.
-5. Contrôler l'impact dans l'historique et les analytics.
+2. Choisir un mode d'autonomie visible.
+3. Lancer l'analyse.
+4. Verifier explainability, score V2, timeline et resultat genere.
+5. Approuver ou corriger.
+6. Rejouer un run pour observer la reutilisation heuristique du feedback.
+7. Verifier l'impact dans l'historique et les analytics.
+
+## Tests
+
+Depuis un environnement virtuel avec les dependances installees:
+
+```bash
+python -m pytest -q
+```
+
+Tests cibles V2:
+
+- score d'automatisation
+- timeline detaillee
+- persistance du feedback
+- modes d'autonomie
+- endpoints enrichis
 
 ## Notes
 
 - Le provider LLM est configurable, mais le MVP tourne en mode heuristique local.
-- Un provider OpenAI-compatible peut etre active via `APP_LLM_ENABLED=true`, `APP_LLM_API_KEY`, `APP_LLM_MODEL` et `APP_LLM_BASE_URL`.
-- Les étapes structurées utilisent un schéma JSON strict quand OpenAI est activé.
-- Aucun email réel n'est envoyé.
-- Aucune action irréversible n'est exécutée.
+- Aucun email reel n'est envoye.
+- Aucune action irreversible n'est executee.
+- Le mode `low_risk_auto` reste simule et visible, sans automation externe.
+- Le feedback learning reste simple, heuristique et transparent.

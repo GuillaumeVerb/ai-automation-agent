@@ -1,11 +1,14 @@
+import json
+
 from sqlmodel import Session
 
 from app.db.session import engine, init_db
-from app.models.schemas import RunCreate
+from app.models.schemas import FeedbackCreate, RunCreate
 from app.services.orchestrator import create_run
+from app.services.persistence import get_preference_hints, save_feedback
 
 
-def test_orchestrator_creates_reporting_run():
+def test_orchestrator_creates_v2_run_with_enriched_payload():
     init_db()
     with Session(engine) as session:
         run, response = create_run(
@@ -20,3 +23,56 @@ def test_orchestrator_creates_reporting_run():
     assert response.run_id == run.id
     assert response.category in {"reporting", "autre"}
     assert response.automation_score >= 0
+
+
+def test_orchestrator_attaches_timeline_and_score_breakdown():
+    init_db()
+    with Session(engine) as session:
+        run, _ = create_run(
+            session,
+            RunCreate(
+                text="Urgent: please prepare a report for tomorrow and share a reply draft.",
+                input_type="text",
+                mode="low_risk_auto",
+            ),
+        )
+        detail_steps = [event["step"] for event in json.loads(run.timeline_json)]
+        assert detail_steps == [
+            "input_received",
+            "preprocess",
+            "classification",
+            "extraction",
+            "generation",
+            "scoring",
+            "human_validation",
+            "persistence",
+        ]
+        score_breakdown = json.loads(run.score_breakdown_json)
+        assert "global_score" in score_breakdown
+        assert "confidence_score" in score_breakdown
+        assert "completeness_score" in score_breakdown
+
+
+def test_feedback_preferences_are_reused_as_hints():
+    init_db()
+    with Session(engine) as session:
+        run, _ = create_run(
+            session,
+            RunCreate(
+                text="Please prepare a customer reply for a KPI issue.",
+                input_type="email",
+                mode="assisted",
+            ),
+        )
+        save_feedback(
+            session,
+            run,
+            FeedbackCreate(
+                field_name="tone",
+                feedback_type="tone",
+                corrected_value="polite",
+                comment="Keep a softer wording",
+            ),
+        )
+        hints = get_preference_hints(session, run.category)
+        assert any("tone:" in hint for hint in hints)

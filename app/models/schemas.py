@@ -1,7 +1,12 @@
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+AutonomyMode = Literal["suggestion_only", "assisted", "low_risk_auto"]
+RiskLevel = Literal["low", "medium", "high"]
+FeedbackType = Literal["category", "priority", "tone", "extracted_field"]
 
 
 class TimelineEvent(BaseModel):
@@ -9,6 +14,8 @@ class TimelineEvent(BaseModel):
     status: str
     detail: str
     timestamp: datetime
+    duration_ms: int = 0
+    output_summary: str = ""
 
 
 class Explainability(BaseModel):
@@ -17,6 +24,7 @@ class Explainability(BaseModel):
     signals: List[str]
     strategy: List[str]
     rationale: str
+    risk_level: RiskLevel
 
 
 class ExtractedFields(BaseModel):
@@ -30,18 +38,36 @@ class ExtractedFields(BaseModel):
 
 
 class ScoreResult(BaseModel):
-    automation_score: int = Field(ge=0, le=100)
-    risk_level: str
+    global_score: int = Field(ge=0, le=100)
+    confidence_score: int = Field(ge=0, le=100)
+    risk_score: int = Field(ge=0, le=100)
+    completeness_score: int = Field(ge=0, le=100)
+    risk_level: RiskLevel
+    autonomy_mode: AutonomyMode
     estimated_time_saved_minutes: int
-    autonomy_recommendation: str
     rationale: str
 
 
 class RunCreate(BaseModel):
     text: str
     input_type: str = "text"
-    mode: str = "assisted"
+    mode: AutonomyMode = "assisted"
     preferred_output: Optional[str] = None
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def normalize_mode(cls, value: str) -> str:
+        aliases = {
+            "suggestion": "suggestion_only",
+            "suggestion_only": "suggestion_only",
+            "assisted": "assisted",
+            "auto_low_risk": "low_risk_auto",
+            "low_risk_auto": "low_risk_auto",
+        }
+        normalized = aliases.get(str(value), value)
+        if normalized not in {"suggestion_only", "assisted", "low_risk_auto"}:
+            raise ValueError("Unsupported mode")
+        return normalized
 
 
 class RunSummaryResponse(BaseModel):
@@ -51,7 +77,36 @@ class RunSummaryResponse(BaseModel):
     summary: str
     strategy: List[str]
     automation_score: int
-    risk_level: str
+    risk_level: RiskLevel
+
+
+class FeedbackCreate(BaseModel):
+    field_name: str
+    feedback_type: FeedbackType
+    corrected_value: str
+    previous_value: Optional[str] = None
+    comment: Optional[str] = None
+
+
+class FeedbackRead(BaseModel):
+    id: str
+    run_id: str
+    field_name: str
+    feedback_type: FeedbackType
+    previous_value: Optional[str]
+    corrected_value: str
+    comment: Optional[str]
+    created_at: datetime
+    request_category: Optional[str] = None
+
+
+class ScoreBreakdown(BaseModel):
+    global_score: int
+    confidence_score: int
+    risk_score: int
+    completeness_score: int
+    estimated_time_saved_minutes: int
+    rationale: str
 
 
 class RunDetailResponse(BaseModel):
@@ -60,7 +115,8 @@ class RunDetailResponse(BaseModel):
     created_at: datetime
     input_text: str
     input_type: str
-    mode: str
+    mode: AutonomyMode
+    requested_mode: AutonomyMode
     category: str
     confidence: float
     rationale: str
@@ -72,7 +128,9 @@ class RunDetailResponse(BaseModel):
     explainability: Explainability
     timeline: List[TimelineEvent]
     automation_score: int
-    risk_level: str
+    score_breakdown: ScoreBreakdown
+    risk_level: RiskLevel
+    autonomy_mode: AutonomyMode
     estimated_time_saved_minutes: int
     autonomy_recommendation: str
     status: str
@@ -80,23 +138,7 @@ class RunDetailResponse(BaseModel):
     estimated_cost: float
     correction_count: int
     used_preferences: List[str]
-
-
-class FeedbackCreate(BaseModel):
-    field_name: str
-    corrected_value: str
-    previous_value: Optional[str] = None
-    comment: Optional[str] = None
-
-
-class FeedbackRead(BaseModel):
-    id: str
-    run_id: str
-    field_name: str
-    previous_value: Optional[str]
-    corrected_value: str
-    comment: Optional[str]
-    created_at: datetime
+    recent_category_feedback: List[FeedbackRead] = Field(default_factory=list)
 
 
 class ApprovalResponse(BaseModel):
@@ -115,3 +157,6 @@ class MetricsResponse(BaseModel):
     average_score: float
     category_distribution: Dict[str, int]
     frequent_feedback: Dict[str, int]
+    average_step_latency_ms: Dict[str, float]
+    autonomy_mode_distribution: Dict[str, int]
+    risk_distribution: Dict[str, int]
