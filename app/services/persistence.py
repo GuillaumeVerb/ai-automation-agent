@@ -8,11 +8,18 @@ from sqlmodel import Session, select
 from app.models.feedback import Feedback
 from app.models.preference import Preference
 from app.models.run import Run
+from app.models.timeline_event import TimelineEventRecord
 from app.models.schemas import FeedbackCreate, FeedbackRead, MetricsResponse, RunDetailResponse, ScoreBreakdown
+
+
+def _parse_event_timestamp(raw_timestamp: str) -> datetime:
+    return datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
 
 
 def create_run_record(session: Session, run: Run) -> Run:
     session.add(run)
+    session.flush()
+    _persist_timeline_records(session, run)
     session.commit()
     session.refresh(run)
     return run
@@ -30,13 +37,38 @@ def get_run(session: Session, run_id: str) -> Optional[Run]:
 def _update_human_validation_timeline(run: Run, status: str, detail: str, output_summary: str) -> None:
     timeline = json.loads(run.timeline_json)
     for event in timeline:
-        if event["step"] == "human_validation":
+        if event["step"] == "reviewed":
             event["status"] = status
             event["detail"] = detail
             event["output_summary"] = output_summary
             event["timestamp"] = datetime.now(timezone.utc).isoformat()
             break
     run.timeline_json = json.dumps(timeline, default=str)
+
+
+def _persist_timeline_records(session: Session, run: Run) -> None:
+    timeline = json.loads(run.timeline_json)
+    for event in timeline:
+        session.add(
+            TimelineEventRecord(
+                run_id=run.id,
+                step_name=event["step"],
+                step_status=event["status"],
+                duration_ms=int(event.get("duration_ms", 0)),
+                short_output=event.get("output_summary", ""),
+                detail=event.get("detail", ""),
+                created_at=_parse_event_timestamp(event["timestamp"]),
+            )
+        )
+
+
+def list_timeline_events_for_run(session: Session, run_id: str) -> List[TimelineEventRecord]:
+    statement = (
+        select(TimelineEventRecord)
+        .where(TimelineEventRecord.run_id == run_id)
+        .order_by(TimelineEventRecord.created_at.asc())
+    )
+    return list(session.exec(statement))
 
 
 def approve_run(session: Session, run: Run) -> Run:
@@ -49,6 +81,17 @@ def approve_run(session: Session, run: Run) -> Run:
         output_summary="Run approuve",
     )
     session.add(run)
+    timeline_event = session.exec(
+        select(TimelineEventRecord)
+        .where(TimelineEventRecord.run_id == run.id)
+        .where(TimelineEventRecord.step_name == "reviewed")
+    ).first()
+    if timeline_event:
+        timeline_event.step_status = "completed"
+        timeline_event.detail = "Validation humaine effectuee et run approuve."
+        timeline_event.short_output = "Run approuve"
+        timeline_event.created_at = datetime.now(timezone.utc)
+        session.add(timeline_event)
     session.commit()
     session.refresh(run)
     return run
@@ -129,6 +172,7 @@ def get_preference_map(session: Session, category: str) -> Dict[str, str]:
 def build_metrics(session: Session) -> MetricsResponse:
     runs = list(session.exec(select(Run)))
     feedback_items = list(session.exec(select(Feedback)))
+    timeline_events = list(session.exec(select(TimelineEventRecord)))
     total_runs = len(runs)
     approved = len([run for run in runs if run.status == "approved"])
     approval_rate = round(approved / total_runs, 2) if total_runs else 0.0
@@ -141,10 +185,8 @@ def build_metrics(session: Session) -> MetricsResponse:
     )
 
     step_totals: dict[str, list[int]] = defaultdict(list)
-    for run in runs:
-        timeline = json.loads(run.timeline_json)
-        for event in timeline:
-            step_totals[event["step"]].append(int(event.get("duration_ms", 0)))
+    for event in timeline_events:
+        step_totals[event.step_name].append(int(event.duration_ms))
     average_step_latency_ms = {
         step: round(sum(values) / len(values), 2)
         for step, values in sorted(step_totals.items())
@@ -165,6 +207,21 @@ def build_metrics(session: Session) -> MetricsResponse:
 
 def to_run_detail(session: Session, run: Run) -> RunDetailResponse:
     recent_category_feedback = list_recent_feedback_for_category(session, run.category)
+    timeline_records = list_timeline_events_for_run(session, run.id)
+    if timeline_records:
+        timeline_payload = [
+            {
+                "step": event.step_name,
+                "status": event.step_status,
+                "detail": event.detail,
+                "timestamp": event.created_at,
+                "duration_ms": event.duration_ms,
+                "output_summary": event.short_output,
+            }
+            for event in timeline_records
+        ]
+    else:
+        timeline_payload = json.loads(run.timeline_json)
     return RunDetailResponse(
         run_id=run.id,
         request_id=run.request_id,
@@ -182,7 +239,7 @@ def to_run_detail(session: Session, run: Run) -> RunDetailResponse:
         output_type=run.output_type,
         strategy=json.loads(run.strategy_json),
         explainability=json.loads(run.explainability_json),
-        timeline=json.loads(run.timeline_json),
+        timeline=timeline_payload,
         automation_score=run.automation_score,
         score_breakdown=ScoreBreakdown(**json.loads(run.score_breakdown_json)),
         risk_level=run.risk_level,

@@ -1,6 +1,7 @@
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.core.config import get_settings
+from app.models import Feedback, Preference, Run, TimelineEventRecord  # noqa: F401
 
 
 settings = get_settings()

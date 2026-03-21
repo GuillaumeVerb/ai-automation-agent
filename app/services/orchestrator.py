@@ -60,12 +60,12 @@ def create_run(session: Session, payload: RunCreate) -> tuple[Run, RunSummaryRes
 
     preprocess_started = time.perf_counter()
     clean_text, request_id = preprocess_text(payload.text)
-    timeline.add_step("preprocess", "Input nettoye et request_id genere.", request_id, preprocess_started)
+    timeline.add_step("preprocessed", "Input nettoye et request_id genere.", request_id, preprocess_started)
 
     classification_started = time.perf_counter()
     category, confidence, rationale, signals = classify_request(clean_text, request_id=request_id)
     timeline.add_step(
-        "classification",
+        "classified",
         f"Demande classee en {category} avec confiance {confidence}.",
         f"{category} ({confidence:.2f})",
         classification_started,
@@ -74,7 +74,7 @@ def create_run(session: Session, payload: RunCreate) -> tuple[Run, RunSummaryRes
     extracted_fields_started = time.perf_counter()
     extracted_fields = extract_fields(clean_text, request_id=request_id)
     timeline.add_step(
-        "extraction",
+        "extracted",
         "Champs metier extraits au format structure.",
         f"priorite={extracted_fields.priority}, action={extracted_fields.action_requested}",
         extracted_fields_started,
@@ -100,7 +100,7 @@ def create_run(session: Session, payload: RunCreate) -> tuple[Run, RunSummaryRes
     else:
         generated_output = generate_report(clean_text, extracted_fields, request_id=request_id)
     timeline.add_step(
-        "generation",
+        "generated",
         f"Sortie de type {output_type} generee.",
         output_type,
         generation_started,
@@ -118,19 +118,19 @@ def create_run(session: Session, payload: RunCreate) -> tuple[Run, RunSummaryRes
         recommended_mode=score.autonomy_mode,
     )
     timeline.add_step(
-        "scoring",
+        "scored",
         "Score d'automatisation et recommandation d'autonomie calcules.",
         f"score={score.global_score}, mode={score.autonomy_mode}",
         scoring_started,
     )
 
     timeline.add_instant(
-        "human_validation",
+        "reviewed",
         "Sortie envoyee en validation humaine.",
         "Validation en attente" if score.autonomy_mode != "low_risk_auto" else "Mode auto simule visible",
         status="pending",
     )
-    timeline.add_instant("persistence", "Run journalise en base.", "Persisted")
+    timeline.add_instant("saved", "Run journalise en base.", "Persisted")
 
     latency_ms = int((time.perf_counter() - started) * 1000)
     estimated_cost = round(0.0004 + len(clean_text) / 100000, 5)

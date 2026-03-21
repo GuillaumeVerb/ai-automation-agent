@@ -39,13 +39,13 @@ def test_orchestrator_attaches_timeline_and_score_breakdown():
         detail_steps = [event["step"] for event in json.loads(run.timeline_json)]
         assert detail_steps == [
             "input_received",
-            "preprocess",
-            "classification",
-            "extraction",
-            "generation",
-            "scoring",
-            "human_validation",
-            "persistence",
+            "preprocessed",
+            "classified",
+            "extracted",
+            "generated",
+            "scored",
+            "reviewed",
+            "saved",
         ]
         score_breakdown = json.loads(run.score_breakdown_json)
         assert "global_score" in score_breakdown

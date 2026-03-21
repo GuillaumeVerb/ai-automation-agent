@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -9,6 +11,7 @@ from app.core.config import get_settings
 
 settings = get_settings()
 API_BASE_URL = settings.ui_api_base_url.rstrip("/")
+DEMO_REQUESTS_PATH = Path(__file__).resolve().parents[1] / "data" / "demo_requests.json"
 
 MODE_DESCRIPTIONS = {
     "suggestion_only": "Mode 0: l'agent suggere, l'humain decide tout.",
@@ -101,13 +104,20 @@ st.markdown(
     </style>
     <div class="hero">
         <h1>AI Automation Agent</h1>
-        <p>Explainable Workflow Copilot V2 with stronger scoring, timeline, feedback reuse, and lightweight analytics.</p>
+        <p>Explainable Workflow Copilot with scoring, timeline, feedback reuse and lightweight analytics.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
 page = st.sidebar.radio("Navigation", ["Run", "Historique", "Analytics"])
+
+
+def _load_demo_requests() -> list[dict]:
+    try:
+        return json.loads(DEMO_REQUESTS_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
 
 
 def _api_get(path: str):
@@ -162,7 +172,7 @@ def _render_score_panel(detail: dict) -> None:
         f"Requested mode `{detail['requested_mode']}` is more aggressive than the recommendation `{detail['autonomy_mode']}`."
     )
     st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown("### Automation Score V2")
+    st.markdown("### Automation Score")
     cols = st.columns(4)
     cols[0].metric("Global", score["global_score"])
     cols[1].metric("Confidence", score["confidence_score"])
@@ -210,20 +220,57 @@ def _render_recent_feedback(feedback_items: list[dict], title: str) -> None:
 
 
 if page == "Run":
+    if "sample_text_input" not in st.session_state:
+        st.session_state["sample_text_input"] = ""
+    if "input_type_value" not in st.session_state:
+        st.session_state["input_type_value"] = "email"
+    if "mode_value" not in st.session_state:
+        st.session_state["mode_value"] = "assisted"
+    if "preferred_output_value" not in st.session_state:
+        st.session_state["preferred_output_value"] = "auto"
+
+    demo_requests = _load_demo_requests()
     intro, sample_col = st.columns([1.2, 1])
     with intro:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
         st.subheader("New Run")
+        if demo_requests:
+            demo_labels = ["Aucun preset"] + [
+                f"{index}. {item['text'][:70]}..."
+                for index, item in enumerate(demo_requests, start=1)
+            ]
+            selected_label = st.selectbox("Preset demo", demo_labels, key="demo_request_label")
+            if selected_label != "Aucun preset":
+                selected_index = demo_labels.index(selected_label) - 1
+                selected_demo = demo_requests[selected_index]
+                if st.button("Charger le preset", use_container_width=True):
+                    st.session_state["sample_text_input"] = selected_demo["text"]
+                    st.session_state["input_type_value"] = selected_demo["input_type"]
+                    st.session_state["mode_value"] = (
+                        "suggestion_only" if selected_demo["mode"] == "suggestion" else selected_demo["mode"]
+                    )
+                    st.session_state["preferred_output_value"] = "auto"
+                    st.rerun()
         sample_text = st.text_area(
             "Texte ou email",
             height=240,
             placeholder="Collez ici un email, une demande metier ou un texte libre.",
+            key="sample_text_input",
         )
         cols = st.columns(3)
-        input_type = cols[0].selectbox("Input type", ["email", "text", "json"])
-        mode = cols[1].selectbox("Mode", list(MODE_LABELS.keys()), format_func=lambda value: MODE_LABELS[value])
-        preferred_output = cols[2].selectbox("Preferred output", ["auto", "email_reply", "report"])
-        st.caption("V2 remains single-flow and safe: no real email sending, no irreversible action, validation stays visible.")
+        input_type = cols[0].selectbox("Input type", ["email", "text", "json"], key="input_type_value")
+        mode = cols[1].selectbox(
+            "Mode",
+            list(MODE_LABELS.keys()),
+            format_func=lambda value: MODE_LABELS[value],
+            key="mode_value",
+        )
+        preferred_output = cols[2].selectbox(
+            "Preferred output",
+            ["auto", "email_reply", "report"],
+            key="preferred_output_value",
+        )
+        st.caption("Single-flow, explainable and safe: no real email sending, no irreversible action, validation stays visible.")
         st.markdown("</div>", unsafe_allow_html=True)
     with sample_col:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
@@ -234,7 +281,10 @@ if page == "Run":
         st.write(f"Mode: `{provider_state}`")
         st.subheader("Autonomy Modes")
         for mode_key, description in MODE_DESCRIPTIONS.items():
-            st.markdown(f'<div class="mode-box"><strong>{MODE_LABELS[mode_key]}</strong><br>{description}</div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="mode-box"><strong>{MODE_LABELS[mode_key]}</strong><br>{description}</div>',
+                unsafe_allow_html=True,
+            )
         st.markdown("</div>", unsafe_allow_html=True)
 
     if st.button("Lancer l'analyse", type="primary", use_container_width=True):
@@ -277,6 +327,13 @@ if page == "Run":
             st.markdown("### Resultat")
             st.write("Summary")
             st.info(detail["summary"])
+            _render_pills(
+                [
+                    f"category:{detail['category']}",
+                    f"output:{detail['output_type']}",
+                    f"status:{detail['status']}",
+                ]
+            )
             st.write("Extracted fields")
             st.json(detail["extracted_fields"])
             st.write("Generated output")
@@ -287,7 +344,7 @@ if page == "Run":
             else:
                 st.caption("Aucune preference heuristique reutilisee pour ce run.")
 
-            action_cols = st.columns(3)
+            action_cols = st.columns(4)
             if action_cols[0].button("Approuver", use_container_width=True):
                 _, error = _safe_call("POST", f"/api/v1/runs/{run_id}/approve", {})
                 if error:
@@ -310,7 +367,11 @@ if page == "Run":
                 else:
                     st.session_state["last_run_id"] = data["run_id"]
                     st.rerun()
-            with action_cols[2].expander("Corriger"):
+            if action_cols[2].button("Escalader", use_container_width=True):
+                st.session_state["escalation_note"] = (
+                    f"Run {run_id} marked for human escalation. No external action was triggered."
+                )
+            with action_cols[3].expander("Corriger"):
                 feedback_type = st.selectbox(
                     "Type de correction",
                     ["category", "priority", "tone", "extracted_field"],
@@ -340,6 +401,8 @@ if page == "Run":
                         st.error(error)
                     else:
                         st.rerun()
+            if st.session_state.get("escalation_note"):
+                st.warning(st.session_state["escalation_note"])
             st.markdown("</div>", unsafe_allow_html=True)
 
         with right:
@@ -385,13 +448,40 @@ elif page == "Historique":
         ],
         use_container_width=True,
     )
+    if filtered:
+        selected_run_id = st.selectbox(
+            "Inspecter un run",
+            [item["run_id"] for item in filtered],
+            key="history_run_id",
+        )
+        selected_run = next(item for item in filtered if item["run_id"] == selected_run_id)
+        info_col, output_col = st.columns([1, 1.2])
+        with info_col:
+            st.markdown("### Detail du run")
+            st.write(f"Category: `{selected_run['category']}`")
+            st.write(f"Requested mode: `{selected_run['requested_mode']}`")
+            st.write(f"Recommended mode: `{selected_run['autonomy_mode']}`")
+            st.write(f"Risk: `{selected_run['risk_level']}`")
+            st.write(f"Status: `{selected_run['status']}`")
+            st.write("Summary")
+            st.info(selected_run["summary"])
+        with output_col:
+            st.markdown("### Output")
+            st.code(selected_run["generated_output"], language="markdown")
+            st.markdown("### Timeline")
+            _render_timeline(selected_run)
+    else:
+        st.caption("Aucun run ne correspond aux filtres courants.")
 
 elif page == "Analytics":
     st.subheader("Analytics")
     metrics, error = _safe_call("GET", "/api/v1/metrics")
+    runs, runs_error = _safe_call("GET", "/api/v1/runs")
     if error:
         st.error(f"API unavailable: {error}")
         st.stop()
+    if runs_error:
+        runs = []
 
     cols = st.columns(4)
     cols[0].metric("Runs", metrics["total_runs"])
@@ -399,6 +489,34 @@ elif page == "Analytics":
     cols[2].metric("Average score", metrics["average_score"])
     avg_latency = round(sum(metrics["average_step_latency_ms"].values()) / len(metrics["average_step_latency_ms"]), 2) if metrics["average_step_latency_ms"] else 0
     cols[3].metric("Avg step latency", f"{avg_latency} ms")
+
+    if runs:
+        score_bands = {"0-39": 0, "40-59": 0, "60-79": 0, "80-100": 0}
+        for item in runs:
+            score = item["automation_score"]
+            if score < 40:
+                score_bands["0-39"] += 1
+            elif score < 60:
+                score_bands["40-59"] += 1
+            elif score < 80:
+                score_bands["60-79"] += 1
+            else:
+                score_bands["80-100"] += 1
+        recent_runs_df = pd.DataFrame(
+            [
+                {
+                    "run_id": item["run_id"],
+                    "category": item["category"],
+                    "score": item["automation_score"],
+                    "risk": item["risk_level"],
+                    "status": item["status"],
+                }
+                for item in runs[:8]
+            ]
+        )
+    else:
+        score_bands = {}
+        recent_runs_df = pd.DataFrame()
 
     left, right = st.columns(2)
     with left:
@@ -421,6 +539,15 @@ elif page == "Analytics":
             st.dataframe(mode_df, use_container_width=True, hide_index=True)
         else:
             st.caption("Aucune donnee disponible.")
+        st.markdown("### Automation score bands")
+        score_band_df = pd.DataFrame(
+            [{"band": key, "runs": value} for key, value in score_bands.items()]
+        )
+        if not score_band_df.empty:
+            st.bar_chart(score_band_df.set_index("band"))
+            st.dataframe(score_band_df, use_container_width=True, hide_index=True)
+        else:
+            st.caption("Aucun score disponible.")
         st.markdown("</div>", unsafe_allow_html=True)
 
     with right:
@@ -446,7 +573,13 @@ elif page == "Analytics":
             [{"risk": key, "runs": value} for key, value in metrics["risk_distribution"].items()]
         )
         if not risk_df.empty:
+            st.bar_chart(risk_df.set_index("risk"))
             st.dataframe(risk_df, use_container_width=True, hide_index=True)
         else:
             st.caption("Aucune distribution de risque disponible.")
+        st.markdown("### Recent runs snapshot")
+        if not recent_runs_df.empty:
+            st.dataframe(recent_runs_df, use_container_width=True, hide_index=True)
+        else:
+            st.caption("Aucun historique recent disponible.")
         st.markdown("</div>", unsafe_allow_html=True)
