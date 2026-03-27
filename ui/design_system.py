@@ -285,7 +285,7 @@ h1, h2, h3, h4, h5 {
 
 .mode-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 0.8rem;
 }
 
@@ -294,7 +294,7 @@ h1, h2, h3, h4, h5 {
     border-radius: var(--radius-md);
     border: 1px solid var(--line-soft);
     background: rgba(255, 255, 255, 0.72);
-    min-height: 180px;
+    min-height: 168px;
 }
 
 .mode-card-selected {
@@ -327,6 +327,7 @@ h1, h2, h3, h4, h5 {
     color: #475569;
     line-height: 1.55;
     font-size: 0.9rem;
+    max-width: 34ch;
 }
 
 .timeline {

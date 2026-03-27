@@ -17,7 +17,7 @@ from ui.i18n import available_languages, get_lang, init_i18n, t
 settings = get_settings()
 API_BASE_URL = settings.ui_api_base_url.rstrip("/")
 DEMO_REQUESTS_PATH = Path(__file__).resolve().parents[1] / "data" / "demo_requests.json"
-PAGE_KEYS = ["run", "history", "analytics"]
+PAGE_KEYS = ["execution", "result", "history", "analytics"]
 MODE_KEYS = ["suggestion_only", "assisted", "low_risk_auto"]
 INPUT_TYPES = ["email", "text", "json"]
 OUTPUT_TYPES = ["auto", "email_reply", "report"]
@@ -442,8 +442,8 @@ def _render_section_intro(title: str, copy: str, eyebrow: str) -> None:
 
 
 def _render_mode_cards(selected_mode: str, recommended_mode: Optional[str]) -> None:
-    cols = st.columns(3, gap="small")
-    for col, mode_key in zip(cols, MODE_KEYS):
+    cards = []
+    for mode_key in MODE_KEYS:
         classes = ["mode-card"]
         if mode_key == selected_mode:
             classes.append("mode-card-selected")
@@ -454,20 +454,22 @@ def _render_mode_cards(selected_mode: str, recommended_mode: Optional[str]) -> N
             footer_badges.append(_badge(t("mode.badge.selected"), "blue"))
         if recommended_mode and mode_key == recommended_mode:
             footer_badges.append(_badge(t("mode.badge.recommended"), "green"))
-        with col:
-            st.markdown(
-                _html_block(
-                    f"""
-                    <div class="{' '.join(classes)}">
-                        <div class="mode-index">{_escape(_mode_index(mode_key))}</div>
-                        <div class="mode-name">{_escape(_mode_label(mode_key))}</div>
-                        <div class="mode-copy">{_escape(_mode_description(mode_key))}</div>
-                        <div class="badge-row" style="margin-top:0.7rem;">{''.join(footer_badges)}</div>
-                    </div>
-                    """
-                ),
-                unsafe_allow_html=True,
+        cards.append(
+            _html_block(
+                f"""
+                <div class="{' '.join(classes)}">
+                    <div class="mode-index">{_escape(_mode_index(mode_key))}</div>
+                    <div class="mode-name">{_escape(_mode_label(mode_key))}</div>
+                    <div class="mode-copy">{_escape(_mode_description(mode_key))}</div>
+                    <div class="badge-row" style="margin-top:0.7rem;">{''.join(footer_badges)}</div>
+                </div>
+                """
             )
+        )
+    st.markdown(
+        _html_block(f'<div class="mode-grid">{"".join(cards)}</div>'),
+        unsafe_allow_html=True,
+    )
 
 
 def _render_input_panel(detail: Optional[dict[str, Any]]) -> None:
@@ -994,23 +996,22 @@ def _render_action_panel(detail: Optional[dict[str, Any]]) -> None:
         unsafe_allow_html=True,
     )
 
-    action_cols = st.columns([0.9, 1.1, 0.9, 1.4])
-    with action_cols[0]:
-        if st.button(t("actions.approve"), use_container_width=True, key="approve_run"):
-            _, error = _safe_call("POST", f"/api/v1/runs/{detail['run_id']}/approve", {})
-            if error:
-                st.error(t("state.api_unavailable", error=error))
-            else:
-                st.session_state["run_notice"] = t("notice.run_approved")
-                st.rerun()
+    if st.button(t("actions.approve"), use_container_width=True, key="approve_run"):
+        _, error = _safe_call("POST", f"/api/v1/runs/{detail['run_id']}/approve", {})
+        if error:
+            st.error(t("state.api_unavailable", error=error))
+        else:
+            st.session_state["run_notice"] = t("notice.run_approved")
+            st.rerun()
 
-    with action_cols[1]:
-        regenerate_choice = st.selectbox(
-            t("actions.regenerate_as"),
-            REGENERATE_OUTPUTS,
-            key="regenerate_choice",
-            format_func=_output_label,
-        )
+    regenerate_choice = st.selectbox(
+        t("actions.regenerate_as"),
+        REGENERATE_OUTPUTS,
+        key="regenerate_choice",
+        format_func=_output_label,
+    )
+    secondary_actions = st.columns(2, gap="small")
+    with secondary_actions[0]:
         if st.button(t("actions.regenerate"), use_container_width=True, key="regenerate_run"):
             data, error = _safe_call(
                 "POST",
@@ -1023,49 +1024,47 @@ def _render_action_panel(detail: Optional[dict[str, Any]]) -> None:
                 st.session_state["last_run_id"] = data["run_id"]
                 st.session_state["run_notice"] = t("notice.run_regenerated", output=_output_label(regenerate_choice))
                 st.rerun()
-
-    with action_cols[2]:
+    with secondary_actions[1]:
         if st.button(t("actions.escalate"), use_container_width=True, key="escalate_run"):
             st.session_state["escalation_note"] = t("actions.escalation.note", run_id=detail["run_id"])
 
-    with action_cols[3]:
-        with st.expander(t("actions.correction.expander"), expanded=False):
-            feedback_type = st.selectbox(
-                t("actions.correction.type"),
-                FEEDBACK_TYPES,
-                key="feedback_type",
-                format_func=_feedback_type_label,
+    with st.expander(t("actions.correction.expander"), expanded=False):
+        feedback_type = st.selectbox(
+            t("actions.correction.type"),
+            FEEDBACK_TYPES,
+            key="feedback_type",
+            format_func=_feedback_type_label,
+        )
+        field_options = {
+            "category": ["category"],
+            "priority": ["priority"],
+            "tone": ["tone"],
+            "extracted_field": ["subject", "deadline", "actor", "action_requested", "channel"],
+        }
+        field_name = st.selectbox(
+            t("actions.correction.field"),
+            field_options[feedback_type],
+            key="feedback_field_name",
+            format_func=_field_label,
+        )
+        corrected_value = st.text_area(t("actions.correction.value"), height=100, key="feedback_corrected_value")
+        comment = st.text_input(t("actions.correction.comment"), key="feedback_comment")
+        if st.button(t("actions.correction.save"), use_container_width=True, key="save_feedback"):
+            _, error = _safe_call(
+                "POST",
+                f"/api/v1/runs/{detail['run_id']}/feedback",
+                {
+                    "field_name": field_name,
+                    "feedback_type": feedback_type,
+                    "corrected_value": corrected_value,
+                    "comment": comment,
+                },
             )
-            field_options = {
-                "category": ["category"],
-                "priority": ["priority"],
-                "tone": ["tone"],
-                "extracted_field": ["subject", "deadline", "actor", "action_requested", "channel"],
-            }
-            field_name = st.selectbox(
-                t("actions.correction.field"),
-                field_options[feedback_type],
-                key="feedback_field_name",
-                format_func=_field_label,
-            )
-            corrected_value = st.text_area(t("actions.correction.value"), height=100, key="feedback_corrected_value")
-            comment = st.text_input(t("actions.correction.comment"), key="feedback_comment")
-            if st.button(t("actions.correction.save"), use_container_width=True, key="save_feedback"):
-                _, error = _safe_call(
-                    "POST",
-                    f"/api/v1/runs/{detail['run_id']}/feedback",
-                    {
-                        "field_name": field_name,
-                        "feedback_type": feedback_type,
-                        "corrected_value": corrected_value,
-                        "comment": comment,
-                    },
-                )
-                if error:
-                    st.error(t("state.api_unavailable", error=error))
-                else:
-                    st.session_state["run_notice"] = t("notice.correction_saved")
-                    st.rerun()
+            if error:
+                st.error(t("state.api_unavailable", error=error))
+            else:
+                st.session_state["run_notice"] = t("notice.correction_saved")
+                st.rerun()
 
     if st.session_state.get("escalation_note"):
         st.warning(st.session_state["escalation_note"])
@@ -1300,8 +1299,31 @@ def _render_run_page() -> None:
         _render_decision_panel(detail)
         _render_score_panel(detail)
 
-    st.markdown(f"### {t('page.run.title')}")
-    result_col, action_col = st.columns([1.45, 0.9], gap="large")
+    st.markdown(
+        f"""
+        <div class="soft-card" style="margin-top:1rem;">
+            <div class="eyebrow">{_escape(t('page.execution.next.eyebrow'))}</div>
+            <div class="panel-title">{_escape(t('page.execution.next.title'))}</div>
+            <p class="panel-copy">{_escape(t('page.execution.next.copy'))}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_result_page() -> None:
+    detail, feedback_items = _fetch_current_run()
+    _render_hero(detail)
+
+    notice = st.session_state.get("run_notice")
+    if notice:
+        st.success(notice)
+        st.session_state["run_notice"] = ""
+
+    st.markdown(f"### {t('page.result.title')}")
+    st.caption(t("page.result.copy"))
+
+    result_col, action_col = st.columns([1.45, 0.95], gap="large")
     with result_col:
         _render_result_sections(detail, feedback_items)
     with action_col:
@@ -1318,8 +1340,12 @@ def main() -> None:
         format_func=lambda value: t(f"nav.{value}"),
     )
 
-    if page == "run":
+    if page == "execution":
         _render_run_page()
+        return
+
+    if page == "result":
+        _render_result_page()
         return
 
     if page == "history":
