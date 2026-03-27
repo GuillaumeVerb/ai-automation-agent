@@ -1,6 +1,7 @@
 import html
 import json
 import time
+import textwrap
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -60,6 +61,10 @@ def _safe_call(method: str, path: str, payload: Optional[dict[str, Any]] = None)
 
 def _escape(value: Any) -> str:
     return html.escape(str(value))
+
+
+def _html_block(content: str) -> str:
+    return textwrap.dedent(content).strip()
 
 
 def _badge(text: str, tone: str = "neutral", strong: bool = False) -> str:
@@ -255,26 +260,28 @@ def _simulate_agent_run(payload: dict[str, Any]) -> tuple[Optional[dict[str, Any
         for index, current_step in enumerate(running_steps[:5], start=1):
             next_step = running_steps[index] if index < len(running_steps) else t("live.meta.none")
             progress_placeholder.markdown(
-                f"""
-                <div class="live-banner live-banner-blue">
-                    <div class="live-banner-top">
-                        <div class="badge-row">{_badge(t("live.running.badge"), "blue")}</div>
-                        <div class="live-progress-pill">{index}/{len(running_steps)}</div>
-                    </div>
-                    <div class="live-banner-title">{_escape(t('live.running.title'))}</div>
-                    <div class="live-banner-copy">{_escape(t('live.running.copy'))}</div>
-                    <div class="live-meta-grid">
-                        <div class="live-meta-card">
-                            <div class="live-meta-label">{_escape(t('live.meta.current'))}</div>
-                            <div class="live-meta-value">{_escape(current_step)}</div>
+                _html_block(
+                    f"""
+                    <div class="live-banner live-banner-blue">
+                        <div class="live-banner-top">
+                            <div class="badge-row">{_badge(t("live.running.badge"), "blue")}</div>
+                            <div class="live-progress-pill">{index}/{len(running_steps)}</div>
                         </div>
-                        <div class="live-meta-card">
-                            <div class="live-meta-label">{_escape(t('live.meta.next'))}</div>
-                            <div class="live-meta-value">{_escape(next_step)}</div>
+                        <div class="live-banner-title">{_escape(t('live.running.title'))}</div>
+                        <div class="live-banner-copy">{_escape(t('live.running.copy'))}</div>
+                        <div class="live-meta-grid">
+                            <div class="live-meta-card">
+                                <div class="live-meta-label">{_escape(t('live.meta.current'))}</div>
+                                <div class="live-meta-value">{_escape(current_step)}</div>
+                            </div>
+                            <div class="live-meta-card">
+                                <div class="live-meta-label">{_escape(t('live.meta.next'))}</div>
+                                <div class="live-meta-value">{_escape(next_step)}</div>
+                            </div>
                         </div>
                     </div>
-                </div>
-                """,
+                    """
+                ),
                 unsafe_allow_html=True,
             )
             if status_box:
@@ -399,22 +406,24 @@ def _render_hero(detail: Optional[dict[str, Any]]) -> None:
         for label, value in stats
     )
     st.markdown(
-        f"""
-        <div class="hero-shell">
-            <div class="hero-topline">
-                <div class="eyebrow">{_escape(t("hero.eyebrow"))}</div>
-                <div class="badge-row">{''.join(summary_badges)}</div>
-            </div>
-            <div class="hero-grid">
-                <div>
-                    <h1 class="hero-title">{_escape(t("hero.title"))}</h1>
-                    <p class="hero-copy">{_escape(t("hero.copy"))}</p>
-                    <div class="hero-value-grid">{_hero_value_cards()}</div>
+        _html_block(
+            f"""
+            <div class="hero-shell">
+                <div class="hero-topline">
+                    <div class="eyebrow">{_escape(t("hero.eyebrow"))}</div>
+                    <div class="badge-row">{''.join(summary_badges)}</div>
                 </div>
-                <div class="hero-stat-grid">{stat_cards}</div>
+                <div class="hero-grid">
+                    <div>
+                        <h1 class="hero-title">{_escape(t("hero.title"))}</h1>
+                        <p class="hero-copy">{_escape(t("hero.copy"))}</p>
+                        <div class="hero-value-grid">{_hero_value_cards()}</div>
+                    </div>
+                    <div class="hero-stat-grid">{stat_cards}</div>
+                </div>
             </div>
-        </div>
-        """,
+            """
+        ),
         unsafe_allow_html=True,
     )
 
@@ -447,14 +456,16 @@ def _render_mode_cards(selected_mode: str, recommended_mode: Optional[str]) -> N
             footer_badges.append(_badge(t("mode.badge.recommended"), "green"))
         with col:
             st.markdown(
-                f"""
-                <div class="{' '.join(classes)}">
-                    <div class="mode-index">{_escape(_mode_index(mode_key))}</div>
-                    <div class="mode-name">{_escape(_mode_label(mode_key))}</div>
-                    <div class="mode-copy">{_escape(_mode_description(mode_key))}</div>
-                    <div class="badge-row" style="margin-top:0.7rem;">{''.join(footer_badges)}</div>
-                </div>
-                """,
+                _html_block(
+                    f"""
+                    <div class="{' '.join(classes)}">
+                        <div class="mode-index">{_escape(_mode_index(mode_key))}</div>
+                        <div class="mode-name">{_escape(_mode_label(mode_key))}</div>
+                        <div class="mode-copy">{_escape(_mode_description(mode_key))}</div>
+                        <div class="badge-row" style="margin-top:0.7rem;">{''.join(footer_badges)}</div>
+                    </div>
+                    """
+                ),
                 unsafe_allow_html=True,
             )
 
@@ -675,21 +686,32 @@ def _render_run_viewer(detail: Optional[dict[str, Any]]) -> None:
             dot_class = "timeline-dot timeline-dot-pending pulse-dot"
             row_class = "timeline-step-card timeline-step-card-active"
         steps_html.append(
-            f"""
-            <div class="{row_class}">
-                <div class="{dot_class}">{_escape(step['short'])}</div>
-                <div class="timeline-step-content">
-                    <div class="timeline-step-title">
-                        <span>{_escape(step['label'])}</span>
-                        <span class="timeline-step-duration">{_escape(step['duration_ms'])} ms</span>
+            _html_block(
+                f"""
+                <div class="{row_class}">
+                    <div class="{dot_class}">{_escape(step['short'])}</div>
+                    <div class="timeline-step-content">
+                        <div class="timeline-step-title">
+                            <span>{_escape(step['label'])}</span>
+                            <span class="timeline-step-duration">{_escape(step['duration_ms'])} ms</span>
+                        </div>
+                        <div class="timeline-step-meta">{_escape(step.get('status_label', step['status']))}</div>
+                        <div class="timeline-step-output">{_escape(step['output_summary'])}</div>
                     </div>
-                    <div class="timeline-step-meta">{_escape(step.get('status_label', step['status']))}</div>
-                    <div class="timeline-step-output">{_escape(step['output_summary'])}</div>
                 </div>
+                """
+            )
+        )
+    st.markdown(
+        _html_block(
+            f"""
+            <div class="strong-card">
+                <div class="timeline timeline-premium">{"".join(steps_html)}</div>
             </div>
             """
-        )
-    st.markdown(f'<div class="strong-card"><div class="timeline timeline-premium">{"".join(steps_html)}</div></div>', unsafe_allow_html=True)
+        ),
+        unsafe_allow_html=True,
+    )
 
 
 def _render_decision_panel(detail: Optional[dict[str, Any]]) -> None:
@@ -719,17 +741,21 @@ def _render_decision_panel(detail: Optional[dict[str, Any]]) -> None:
         (t("decision.card.output"), _output_label(detail["output_type"])),
     ]
     st.markdown(
-        '<div class="decision-grid">'
-        + "".join(
-            f"""
-            <div class="decision-card">
-                <div class="decision-label">{_escape(label)}</div>
-                <div class="decision-value">{_escape(value)}</div>
-            </div>
-            """
-            for label, value in cards
-        )
-        + "</div>",
+        _html_block(
+            '<div class="decision-grid">'
+            + "".join(
+                _html_block(
+                    f"""
+                    <div class="decision-card">
+                        <div class="decision-label">{_escape(label)}</div>
+                        <div class="decision-value">{_escape(value)}</div>
+                    </div>
+                    """
+                )
+                for label, value in cards
+            )
+            + "</div>"
+        ),
         unsafe_allow_html=True,
     )
 
