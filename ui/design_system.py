@@ -745,4 +745,5 @@ STEP_META = {
     "generated": {"label": "Generation", "short": "GE"},
     "scored": {"label": "Scoring", "short": "SC"},
     "reviewed": {"label": "Awaiting validation", "short": "RV"},
+    "saved": {"label": "Persistence", "short": "SV"},
 }
