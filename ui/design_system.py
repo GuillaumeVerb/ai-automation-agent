@@ -37,13 +37,27 @@ GLOBAL_CSS = """
 }
 
 [data-testid="stSidebar"] {
-    background: rgba(255, 255, 255, 0.7);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.68));
     border-right: 1px solid var(--line-soft);
-    min-width: 240px;
+    min-width: 228px;
 }
 
 [data-testid="stSidebar"] * {
     color: var(--text-strong);
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] > div {
+    gap: 0.45rem;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] label {
+    padding: 0.5rem 0.55rem;
+    border-radius: 12px;
+    transition: background 160ms ease, border-color 160ms ease;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+    background: rgba(15, 23, 42, 0.04);
 }
 
 h1, h2, h3, h4, h5 {
@@ -52,7 +66,7 @@ h1, h2, h3, h4, h5 {
 }
 
 .hero-shell {
-    padding: 1.5rem 1.6rem;
+    padding: 1.32rem 1.45rem;
     border: 1px solid rgba(255, 255, 255, 0.6);
     border-radius: var(--radius-xl);
     background:
@@ -105,19 +119,19 @@ h1, h2, h3, h4, h5 {
 }
 
 .hero-title {
-    font-size: 2.8rem;
-    line-height: 1.02;
+    font-size: 2.46rem;
+    line-height: 1.05;
     margin: 0;
     color: #0f172a;
     max-width: 780px;
 }
 
 .hero-copy {
-    margin: 0.75rem 0 1.1rem;
+    margin: 0.65rem 0 1rem;
     max-width: 860px;
     color: #475569;
-    font-size: 1.02rem;
-    line-height: 1.7;
+    font-size: 0.98rem;
+    line-height: 1.62;
 }
 
 .hero-value-grid {
@@ -483,6 +497,49 @@ h1, h2, h3, h4, h5 {
     border: 1px solid var(--line-soft);
     background: rgba(255, 255, 255, 0.84);
     margin-bottom: 0.85rem;
+}
+
+.review-banner {
+    padding: 1rem 1.05rem;
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(37, 99, 235, 0.12);
+    background: linear-gradient(135deg, rgba(238, 244, 255, 0.92), rgba(255, 255, 255, 0.96));
+    box-shadow: var(--shadow-soft);
+    margin-bottom: 1rem;
+}
+
+.review-banner-title {
+    margin: 0.2rem 0 0.35rem;
+    color: #0f172a;
+    font-size: 1.16rem;
+    font-weight: 800;
+}
+
+.review-banner-copy {
+    margin: 0;
+    color: #5f6471;
+    line-height: 1.58;
+}
+
+.result-emphasis {
+    padding: 0.95rem 1rem;
+    border-radius: var(--radius-md);
+    background: rgba(239, 246, 255, 0.78);
+    border: 1px solid rgba(96, 165, 250, 0.16);
+    color: #1e3a8a;
+    line-height: 1.6;
+    margin-bottom: 0.85rem;
+}
+
+.result-success {
+    padding: 0.95rem 1rem;
+    border-radius: var(--radius-md);
+    background: rgba(236, 253, 243, 0.9);
+    border: 1px solid rgba(52, 211, 153, 0.16);
+    color: #166534;
+    line-height: 1.6;
+    margin-bottom: 0.85rem;
+    font-weight: 600;
 }
 
 .section-header {

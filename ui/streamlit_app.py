@@ -888,6 +888,26 @@ def _render_result_sections(detail: Optional[dict[str, Any]], feedback_items: li
         """,
         unsafe_allow_html=True,
     )
+    status_tone = _status_tone(detail["status"])
+    overview_badges = "".join(
+        [
+            _badge(t("run.badge.id", run_id=detail["run_id"][:8]), "blue"),
+            _badge(t("run.badge.status", status=_status_label(detail["status"])), status_tone),
+            _badge(t("run.badge.category", category=_category_label(detail["category"])), "blue"),
+            _badge(t("run.badge.risk", risk=_risk_label(detail["risk_level"])), _risk_tone(detail["risk_level"])),
+        ]
+    )
+    st.markdown(
+        f"""
+        <div class="review-banner">
+            <div class="eyebrow">{_escape(t('page.result.eyebrow'))}</div>
+            <div class="badge-row" style="margin-top:0.55rem;">{overview_badges}</div>
+            <div class="review-banner-title">{_escape(t('page.result.lead'))}</div>
+            <p class="review-banner-copy">{_escape(t('page.result.copy'))}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         f"""
@@ -900,7 +920,7 @@ def _render_result_sections(detail: Optional[dict[str, Any]], feedback_items: li
         """,
         unsafe_allow_html=True,
     )
-    st.info(detail["summary"])
+    st.markdown(f'<div class="result-emphasis">{_escape(detail["summary"])}</div>', unsafe_allow_html=True)
 
     st.markdown(
         f"""
@@ -949,7 +969,10 @@ def _render_result_sections(detail: Optional[dict[str, Any]], feedback_items: li
         """,
         unsafe_allow_html=True,
     )
-    st.success(_recommended_next_action(detail))
+    st.markdown(
+        f'<div class="result-success">{_escape(_recommended_next_action(detail))}</div>',
+        unsafe_allow_html=True,
+    )
 
     preference_badges = "".join(_badge(item, "green") for item in detail["used_preferences"])
     if preference_badges:
@@ -1319,9 +1342,6 @@ def _render_result_page() -> None:
     if notice:
         st.success(notice)
         st.session_state["run_notice"] = ""
-
-    st.markdown(f"### {t('page.result.title')}")
-    st.caption(t("page.result.copy"))
 
     result_col, action_col = st.columns([1.45, 0.95], gap="large")
     with result_col:
