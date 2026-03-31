@@ -7,7 +7,7 @@ AI Automation Agent est un MVP local et démontrable d'un workflow IA centré su
 - observabilité
 - validation humaine
 
-Le système reçoit un texte ou un email, le classe, en extrait les champs utiles, génère un résumé puis une sortie exploitable, calcule un automation score, expose une timeline d'exécution, et conserve runs + feedbacks en SQLite.
+Le système reçoit un texte ou un email, initialise un run progressif, le classe, en extrait les champs utiles, génère un résumé puis une sortie exploitable, calcule un automation score, expose une timeline d'exécution live, et conserve runs + feedbacks en SQLite.
 
 ## Positionnement
 
@@ -43,6 +43,7 @@ Ce n'est pas un multi-agent system. C'est un MVP crédible, lisible et testable.
 - timeline d'exécution
 - validation humaine
 - persistance des runs et feedbacks
+- run progressif avec streaming live des événements
 
 ### V2 light
 
@@ -62,11 +63,12 @@ La V2 de l'interface Streamlit repositionne le produit comme un cockpit agentiqu
 La page `Run` est maintenant structuree en trois zones:
 - `Input panel`: saisie, presets de demo, selection du mode d'autonomie, CTA principal
 - `Agent run viewer`: timeline visuelle du workflow avec progression, statuts et sorties courtes
-- `Decision & result panel`: explicabilite, automation score, sortie generee et actions operateur
+- `Decision & live artifacts panel`: explicabilite, score, resume live, champs extraits et sortie intermediaire
 
 Autres evolutions UI:
 - hero plus fort avec statut produit, provider, mode et promesse produit
 - modes d'autonomie presentes comme des cartes visuelles distinctes
+- artefacts live visibles pendant l'execution via snapshots streamés
 - resultats separes en sections lisibles: summary, extracted fields, generated output, recommended next action
 - states plus clairs pour empty, loading, success et pending review
 - `Historique` et `Analytics` remises dans un langage visuel coherent avec le cockpit principal
@@ -79,6 +81,7 @@ Fichiers UI principaux:
 
 ```text
 UI Streamlit / API FastAPI
+        -> initialize run (processing)
         -> preprocess
         -> classify
         -> extract
@@ -86,8 +89,9 @@ UI Streamlit / API FastAPI
         -> route strategy
         -> generate output
         -> compute score + explainability
+        -> persist timeline events + live snapshots
         -> human review
-        -> persist run + timeline + feedback
+        -> persist final run + feedback
 ```
 
 Organisation du repo:
@@ -123,6 +127,8 @@ Stocke chaque étape métier individuellement:
 - `reviewed`
 - `saved`
 
+Chaque etape est persistée au fil de l'eau puis diffusée via le stream SSE de run.
+
 ### `Feedback`
 
 Stocke les corrections utilisateur:
@@ -140,6 +146,7 @@ Mémoire heuristique simple réutilisée sur les runs suivants pour refléter le
 - `POST /api/v1/runs`
 - `GET /api/v1/runs`
 - `GET /api/v1/runs/{run_id}`
+- `GET /api/v1/runs/{run_id}/stream`
 - `POST /api/v1/runs/{run_id}/approve`
 - `POST /api/v1/runs/{run_id}/regenerate`
 - `POST /api/v1/runs/{run_id}/feedback`
@@ -219,7 +226,7 @@ UI_API_BASE_URL=http://127.0.0.1:8000
 2. Coller un email ou charger un preset de démo depuis `data/demo_requests.json`.
 3. Choisir le type d'entrée et le mode d'autonomie.
 4. Lancer l'analyse depuis `Run AI Agent`.
-5. Observer la timeline centrale du run, les decisions explicables et le score d'automatisation.
+5. Observer la timeline centrale du run, les artefacts live, les decisions explicables et le score d'automatisation.
 6. Relire la sortie, approuver, corriger, regenerer ou marquer une escalade humaine.
 
 ### Via l'API
@@ -235,6 +242,19 @@ curl -sS -X POST http://127.0.0.1:8000/api/v1/runs \
     "mode": "assisted"
   }'
 ```
+
+La creation retourne un `202 Accepted` avec un `run_id`, puis le run progresse en arriere-plan.
+
+Suivre le run en live:
+
+```bash
+curl -N http://127.0.0.1:8000/api/v1/runs/<run_id>/stream
+```
+
+Le stream diffuse:
+- des `timeline_event` pour chaque etape persistée
+- des `run_snapshot` pour les artefacts metier intermediaires
+- un `run_status` terminal quand le run sort de `processing`
 
 Récupérer les métriques:
 

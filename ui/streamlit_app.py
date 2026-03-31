@@ -1039,6 +1039,95 @@ def _render_decision_panel(detail: Optional[dict[str, Any]]) -> None:
     )
 
 
+def _render_live_artifacts_panel(detail: Optional[dict[str, Any]]) -> None:
+    _render_section_intro(
+        title=t("section.live_artifacts.title"),
+        copy=t("section.live_artifacts.copy"),
+        eyebrow=t("section.live_artifacts.eyebrow"),
+    )
+
+    if not detail:
+        st.markdown(
+            f"""
+            <div class="empty-state">
+                <div class="empty-title">{_escape(t('live_artifacts.empty.title'))}</div>
+                <p class="empty-copy">{_escape(t('live_artifacts.empty.copy'))}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    if detail.get("summary") and detail["summary"] != "Traitement en cours...":
+        st.markdown(
+            f"""
+            <div class="result-section">
+                <div class="section-header">
+                    <p class="section-title">{_escape(t('live_artifacts.summary.title'))}</p>
+                    <p class="section-copy">{_escape(t('live_artifacts.summary.copy'))}</p>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(f'<div class="result-emphasis">{_escape(detail["summary"])}</div>', unsafe_allow_html=True)
+
+    extracted_fields = detail.get("extracted_fields") or {}
+    visible_fields = {
+        key: value
+        for key, value in extracted_fields.items()
+        if value not in {None, "", "assess_request"}
+    }
+    if visible_fields:
+        st.markdown(
+            f"""
+            <div class="result-section">
+                <div class="section-header">
+                    <p class="section-title">{_escape(t('live_artifacts.fields.title'))}</p>
+                    <p class="section-copy">{_escape(t('live_artifacts.fields.copy'))}</p>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        artifact_df = pd.DataFrame(
+            [
+                {
+                    t("field.label"): _field_label(key),
+                    t("field.value"): value,
+                }
+                for key, value in visible_fields.items()
+            ]
+        )
+        st.dataframe(artifact_df, use_container_width=True, hide_index=True)
+
+    generated_output = detail.get("generated_output", "").strip()
+    if generated_output:
+        st.markdown(
+            f"""
+            <div class="result-section">
+                <div class="section-header">
+                    <p class="section-title">{_escape(t('live_artifacts.output.title'))}</p>
+                    <p class="section-copy">{_escape(t('live_artifacts.output.copy'))}</p>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.code(generated_output, language="markdown")
+
+    if not visible_fields and not generated_output and (not detail.get("summary") or detail["summary"] == "Traitement en cours..."):
+        st.markdown(
+            f"""
+            <div class="empty-state">
+                <div class="empty-title">{_escape(t('live_artifacts.waiting.title'))}</div>
+                <p class="empty-copy">{_escape(t('live_artifacts.waiting.copy'))}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
 def _render_score_panel(detail: Optional[dict[str, Any]]) -> None:
     if not detail:
         return
@@ -1585,6 +1674,7 @@ def _render_run_page() -> None:
         _render_run_viewer(detail)
     with right:
         _render_decision_panel(detail)
+        _render_live_artifacts_panel(detail)
         _render_score_panel(detail)
 
     st.markdown(
