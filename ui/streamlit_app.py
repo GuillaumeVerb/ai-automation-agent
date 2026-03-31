@@ -176,6 +176,54 @@ def _diagnostic_tone(code: str) -> str:
     return "blue"
 
 
+def _completed_timeline_steps(detail: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        event
+        for event in detail.get("timeline", [])
+        if event.get("status") == "completed" and event.get("step") != "saved"
+    ]
+
+
+def _latest_completed_step(detail: dict[str, Any]) -> Optional[dict[str, Any]]:
+    completed = _completed_timeline_steps(detail)
+    return completed[-1] if completed else None
+
+
+def _average_step_latency(detail: dict[str, Any]) -> int:
+    completed = _completed_timeline_steps(detail)
+    if not completed:
+        return 0
+    return int(round(sum(int(event.get("duration_ms", 0)) for event in completed) / len(completed)))
+
+
+def _runtime_diagnostics(detail: dict[str, Any]) -> list[str]:
+    explainability = detail.get("explainability", {})
+    diagnostics = explainability.get("diagnostics", [])
+    return diagnostics if isinstance(diagnostics, list) else []
+
+
+def _provider_filter_options(runs: list[dict[str, Any]]) -> list[str]:
+    options = ["all"]
+    seen = set()
+    for item in runs:
+        provider_status = item.get("explainability", {}).get("provider_status")
+        if provider_status and provider_status not in seen:
+            seen.add(provider_status)
+            options.append(provider_status)
+    return options
+
+
+def _diagnostic_filter_options(runs: list[dict[str, Any]]) -> list[str]:
+    options = ["all"]
+    seen = set()
+    for item in runs:
+        for diagnostic in item.get("explainability", {}).get("diagnostics", []):
+            if diagnostic not in seen:
+                seen.add(diagnostic)
+                options.append(diagnostic)
+    return options
+
+
 def _recommended_next_action(detail: dict[str, Any]) -> str:
     if detail["status"] == "processing":
         return t("next_action.processing")
@@ -875,6 +923,10 @@ def _render_run_viewer(detail: Optional[dict[str, Any]]) -> None:
         }
     ]
     completed_steps = len([step for step in steps_payload if step["status"] == "completed"])
+    latest_completed_step = _latest_completed_step(detail)
+    avg_step_latency_ms = _average_step_latency(detail)
+    diagnostics = _runtime_diagnostics(detail)
+    provider_status = detail.get("explainability", {}).get("provider_status")
     top_badges = "".join(
         [
             _badge(t("run.badge.id", run_id=detail["run_id"][:8]), "blue"),
@@ -926,6 +978,22 @@ def _render_run_viewer(detail: Optional[dict[str, Any]]) -> None:
                 <div class="kpi-card">
                     <div class="kpi-value">{_escape(viewer_state['current'])}</div>
                     <div class="kpi-label">{_escape(t('run.kpi.current_phase'))}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-value">{_escape(avg_step_latency_ms)} ms</div>
+                    <div class="kpi-label">{_escape(t('run.kpi.avg_step_latency'))}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-value">{_escape(latest_completed_step.get('duration_ms', 0) if latest_completed_step else 0)} ms</div>
+                    <div class="kpi-label">{_escape(t('run.kpi.latest_step_latency'))}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-value">{_escape(_provider_status_label(provider_status))}</div>
+                    <div class="kpi-label">{_escape(t('run.kpi.provider_status'))}</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-value">{_escape(len(diagnostics))}</div>
+                    <div class="kpi-label">{_escape(t('run.kpi.diagnostics'))}</div>
                 </div>
             </div>
         </div>
@@ -1537,22 +1605,45 @@ def _render_history_page(runs: list[dict[str, Any]]) -> None:
         eyebrow=t("history.eyebrow"),
     )
 
-    category_filter = st.selectbox(
-        t("history.filter.category"),
-        CATEGORY_FILTERS,
-        format_func=_category_label,
-    )
-    status_filter = st.selectbox(
-        t("history.filter.status"),
-        STATUS_FILTERS,
-        format_func=lambda value: _translated_value("status", value, value.title()),
-    )
+    filter_cols = st.columns(4)
+    with filter_cols[0]:
+        category_filter = st.selectbox(
+            t("history.filter.category"),
+            CATEGORY_FILTERS,
+            format_func=_category_label,
+        )
+    with filter_cols[1]:
+        status_filter = st.selectbox(
+            t("history.filter.status"),
+            STATUS_FILTERS,
+            format_func=lambda value: _translated_value("status", value, value.title()),
+        )
+    with filter_cols[2]:
+        provider_filter = st.selectbox(
+            t("history.filter.provider"),
+            _provider_filter_options(runs),
+            format_func=lambda value: _status_label("all") if value == "all" else _provider_status_label(value),
+        )
+    with filter_cols[3]:
+        diagnostic_filter = st.selectbox(
+            t("history.filter.diagnostic"),
+            _diagnostic_filter_options(runs),
+            format_func=lambda value: _status_label("all") if value == "all" else _diagnostic_label(value),
+        )
 
     filtered = [
         item
         for item in runs
         if (category_filter == "all" or item["category"] == category_filter)
         and (status_filter == "all" or item["status"] == status_filter)
+        and (
+            provider_filter == "all"
+            or item.get("explainability", {}).get("provider_status") == provider_filter
+        )
+        and (
+            diagnostic_filter == "all"
+            or diagnostic_filter in item.get("explainability", {}).get("diagnostics", [])
+        )
     ]
 
     kpis = st.columns(4)
@@ -1581,6 +1672,14 @@ def _render_history_page(runs: list[dict[str, Any]]) -> None:
         created_text = t("history.card.created", created_at=_format_datetime(item["created_at"]))
         requested_mode = t("history.card.requested_mode", mode=_mode_label(item["requested_mode"]))
         recommended_mode = t("history.card.recommended_mode", mode=_mode_label(item["autonomy_mode"]))
+        diagnostics = item.get("explainability", {}).get("diagnostics", [])
+        provider_status = item.get("explainability", {}).get("provider_status")
+        runtime_badges = "".join(
+            [
+                _badge(_provider_status_label(provider_status), "blue"),
+                *[_badge(_diagnostic_label(code), _diagnostic_tone(code)) for code in diagnostics[:3]],
+            ]
+        )
         st.markdown(
             f"""
             <div class="history-item">
@@ -1590,6 +1689,7 @@ def _render_history_page(runs: list[dict[str, Any]]) -> None:
                     {_badge(t('misc.score_label', score=item['automation_score']), 'green')}
                     {_badge(_risk_label(item['risk_level']), _risk_tone(item['risk_level']))}
                 </div>
+                <div class="badge-row" style="margin-top:0.55rem;">{runtime_badges}</div>
                 <div class="panel-title" style="margin-top:0.8rem;">Run {item['run_id'][:8]}</div>
                 <div class="history-meta">{_escape(created_text)} | {_escape(requested_mode)} | {_escape(recommended_mode)}</div>
                 <p class="panel-copy" style="margin-top:0.55rem;">{_escape(item['summary'])}</p>
