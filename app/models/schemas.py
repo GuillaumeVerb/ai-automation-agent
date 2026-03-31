@@ -25,6 +25,8 @@ class Explainability(BaseModel):
     strategy: List[str]
     rationale: str
     risk_level: RiskLevel
+    diagnostics: List[str] = Field(default_factory=list)
+    provider_status: Optional[str] = None
 
 
 class ExtractedFields(BaseModel):

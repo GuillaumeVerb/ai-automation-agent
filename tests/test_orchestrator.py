@@ -51,6 +51,10 @@ def test_orchestrator_attaches_timeline_and_score_breakdown():
         assert "global_score" in score_breakdown
         assert "confidence_score" in score_breakdown
         assert "completeness_score" in score_breakdown
+        explainability = json.loads(run.explainability_json)
+        assert "diagnostics" in explainability
+        assert "heuristic_fallback_active" in explainability["diagnostics"]
+        assert explainability["provider_status"] == "heuristic_fallback_active"
 
 
 def test_feedback_preferences_are_reused_as_hints():

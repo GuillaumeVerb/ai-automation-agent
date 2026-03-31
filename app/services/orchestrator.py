@@ -12,6 +12,7 @@ from app.services.classifier import classify_request
 from app.services.email_generator import generate_email_reply
 from app.services.explainability import build_explainability
 from app.services.extractor import extract_fields
+from app.services.llm_engine import begin_llm_trace, consume_llm_trace
 from app.services.persistence import append_timeline_event, create_run_record, get_preference_hints, get_preference_map, get_run
 from app.services.preprocess import preprocess_text
 from app.services.report_generator import generate_report
@@ -75,6 +76,8 @@ def _placeholder_explainability(requested_mode: str) -> Explainability:
         strategy=[],
         rationale="Run initialise et en cours de traitement.",
         risk_level="low",
+        diagnostics=["run_processing"],
+        provider_status="processing",
     )
 
 
@@ -127,6 +130,38 @@ def _processing_summary_response(run: Run) -> RunSummaryResponse:
     )
 
 
+def _build_runtime_state(llm_trace: list[dict[str, str]]) -> tuple[list[str], str]:
+    statuses = [item["status"] for item in llm_trace]
+    diagnostics: list[str] = []
+
+    if any(status == "provider_live" for status in statuses):
+        diagnostics.append("provider_live")
+    if any(status in {"provider_timeout", "provider_error", "provider_invalid_payload", "provider_invalid_json", "provider_empty"} for status in statuses):
+        diagnostics.append("provider_issue_detected")
+    if any(status == "provider_timeout" for status in statuses):
+        diagnostics.append("provider_timeout")
+    if any(status == "provider_error" for status in statuses):
+        diagnostics.append("provider_error")
+    if any(status in {"provider_disabled", "provider_unconfigured"} for status in statuses):
+        diagnostics.append("heuristic_fallback_active")
+    if any(status in {"provider_timeout", "provider_error", "provider_invalid_payload", "provider_invalid_json", "provider_empty"} for status in statuses):
+        diagnostics.append("heuristic_fallback_active")
+
+    provider_status = "provider_live"
+    if "provider_timeout" in diagnostics:
+        provider_status = "provider_timeout"
+    elif "provider_error" in diagnostics or "provider_issue_detected" in diagnostics:
+        provider_status = "provider_error"
+    elif "heuristic_fallback_active" in diagnostics and "provider_live" not in diagnostics:
+        provider_status = "heuristic_fallback_active"
+
+    deduped = []
+    for item in diagnostics:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped, provider_status
+
+
 def initialize_run(session: Session, payload: RunCreate) -> tuple[Run, RunSummaryResponse]:
     timeline = TimelineTracker()
     timeline.add_instant("input_received", "Input recu par l'API.", payload.input_type)
@@ -166,6 +201,7 @@ def initialize_run(session: Session, payload: RunCreate) -> tuple[Run, RunSummar
 
 def process_initialized_run(session: Session, run: Run, payload: RunCreate) -> tuple[Run, RunSummaryResponse]:
     started = time.perf_counter()
+    begin_llm_trace()
 
     preprocess_started = time.perf_counter()
     clean_text, request_id = preprocess_text(payload.text)
@@ -258,6 +294,8 @@ def process_initialized_run(session: Session, run: Run, payload: RunCreate) -> t
     )
 
     scoring_started = time.perf_counter()
+    llm_trace = consume_llm_trace()
+    runtime_diagnostics, provider_status = _build_runtime_state(llm_trace)
     explainability = build_explainability(
         category=category,
         confidence=confidence,
@@ -267,6 +305,8 @@ def process_initialized_run(session: Session, run: Run, payload: RunCreate) -> t
         risk_level=score.risk_level,
         requested_mode=payload.mode,
         recommended_mode=score.autonomy_mode,
+        diagnostics=runtime_diagnostics,
+        provider_status=provider_status,
     )
     run.explainability_json = explainability.model_dump_json()
     run.automation_score = score.global_score
@@ -337,6 +377,14 @@ def process_run_async(run_id: str, payload_data: dict) -> None:
         except Exception as exc:
             run.status = "failed"
             run.rationale = f"Le run a echoue pendant le traitement: {exc}"
+            failed_explainability = _placeholder_explainability(run.mode).model_copy(
+                update={
+                    "rationale": f"Le run a echoue pendant le traitement: {exc}",
+                    "diagnostics": ["run_failed"],
+                    "provider_status": "failed",
+                }
+            )
+            run.explainability_json = failed_explainability.model_dump_json()
             session.add(run)
             session.commit()
 

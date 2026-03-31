@@ -8,6 +8,7 @@ def generate_report(text: str, extracted_fields: ExtractedFields, category: str,
         load_prompt("report"),
         f"Request:\n{text}\n\nStructured fields:\n{extracted_fields.model_dump_json()}",
         request_id=request_id,
+        task_name="report",
     )
     if llm_report:
         return llm_report.strip()

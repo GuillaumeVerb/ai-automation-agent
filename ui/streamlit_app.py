@@ -156,6 +156,26 @@ def _feedback_type_label(feedback_type: str) -> str:
     return _translated_value("feedback", feedback_type, feedback_type)
 
 
+def _provider_status_label(status: Optional[str]) -> str:
+    if not status:
+        return t("provider.status.unknown")
+    return _translated_value("provider.status", status, status.replace("_", " "))
+
+
+def _diagnostic_label(code: str) -> str:
+    return _translated_value("diagnostic", code, code.replace("_", " "))
+
+
+def _diagnostic_tone(code: str) -> str:
+    if code in {"provider_live"}:
+        return "green"
+    if code in {"provider_timeout", "provider_error", "run_failed"}:
+        return "red"
+    if code in {"heuristic_fallback_active", "provider_issue_detected"}:
+        return "amber"
+    return "blue"
+
+
 def _recommended_next_action(detail: dict[str, Any]) -> str:
     if detail["status"] == "processing":
         return t("next_action.processing")
@@ -361,6 +381,7 @@ def _apply_stream_event(detail: dict[str, Any], event: dict[str, Any]) -> bool:
         detail["strategy"] = event.get("strategy", detail.get("strategy", []))
         detail["extracted_fields"] = event.get("extracted_fields", detail.get("extracted_fields", {}))
         detail["used_preferences"] = event.get("used_preferences", detail.get("used_preferences", []))
+        detail["explainability"] = event.get("explainability", detail.get("explainability", {}))
         return True
     if event.get("type") != "timeline_event":
         return False
@@ -1039,6 +1060,78 @@ def _render_decision_panel(detail: Optional[dict[str, Any]]) -> None:
     )
 
 
+def _render_operator_console_panel(detail: Optional[dict[str, Any]]) -> None:
+    _render_section_intro(
+        title=t("section.operator_console.title"),
+        copy=t("section.operator_console.copy"),
+        eyebrow=t("section.operator_console.eyebrow"),
+    )
+
+    if not detail:
+        st.markdown(
+            f"""
+            <div class="empty-state">
+                <div class="empty-title">{_escape(t('operator_console.empty.title'))}</div>
+                <p class="empty-copy">{_escape(t('operator_console.empty.copy'))}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    explainability = detail.get("explainability", {})
+    provider_status = explainability.get("provider_status")
+    diagnostics = explainability.get("diagnostics", [])
+    provider_badges = [
+        _badge(t("operator_console.run_status", status=_status_label(detail["status"])), _status_tone(detail["status"])),
+        _badge(t("operator_console.provider_status", status=_provider_status_label(provider_status)), "blue"),
+    ]
+    diagnostic_badges = "".join(_badge(_diagnostic_label(code), _diagnostic_tone(code)) for code in diagnostics)
+
+    st.markdown(
+        f"""
+        <div class="result-section">
+            <div class="section-header">
+                <p class="section-title">{_escape(t('operator_console.status.title'))}</p>
+                <p class="section-copy">{_escape(t('operator_console.status.copy'))}</p>
+            </div>
+            <div class="badge-row">{''.join(provider_badges)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if diagnostic_badges:
+        st.markdown(
+            f"""
+            <div class="result-section">
+                <div class="section-header">
+                    <p class="section-title">{_escape(t('operator_console.diagnostics.title'))}</p>
+                    <p class="section-copy">{_escape(t('operator_console.diagnostics.copy'))}</p>
+                </div>
+                <div class="badge-row">{diagnostic_badges}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    if detail["status"] == "failed":
+        st.markdown(
+            f'<div class="result-danger">{_escape(t("operator_console.failed.copy", rationale=detail.get("rationale", "")))}</div>',
+            unsafe_allow_html=True,
+        )
+    elif "provider_timeout" in diagnostics:
+        st.markdown(
+            f'<div class="result-warning">{_escape(t("operator_console.timeout.copy"))}</div>',
+            unsafe_allow_html=True,
+        )
+    elif "heuristic_fallback_active" in diagnostics:
+        st.markdown(
+            f'<div class="result-warning">{_escape(t("operator_console.fallback.copy"))}</div>',
+            unsafe_allow_html=True,
+        )
+
+
 def _render_live_artifacts_panel(detail: Optional[dict[str, Any]]) -> None:
     _render_section_intro(
         title=t("section.live_artifacts.title"),
@@ -1673,6 +1766,7 @@ def _render_run_page() -> None:
     with center:
         _render_run_viewer(detail)
     with right:
+        _render_operator_console_panel(detail)
         _render_decision_panel(detail)
         _render_live_artifacts_panel(detail)
         _render_score_panel(detail)

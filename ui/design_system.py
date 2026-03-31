@@ -542,6 +542,28 @@ h1, h2, h3, h4, h5 {
     font-weight: 600;
 }
 
+.result-warning {
+    padding: 0.95rem 1rem;
+    border-radius: var(--radius-md);
+    background: rgba(255, 247, 232, 0.94);
+    border: 1px solid rgba(245, 158, 11, 0.18);
+    color: #9a6700;
+    line-height: 1.6;
+    margin-bottom: 0.85rem;
+    font-weight: 600;
+}
+
+.result-danger {
+    padding: 0.95rem 1rem;
+    border-radius: var(--radius-md);
+    background: rgba(255, 241, 241, 0.94);
+    border: 1px solid rgba(220, 38, 38, 0.18);
+    color: #b42318;
+    line-height: 1.6;
+    margin-bottom: 0.85rem;
+    font-weight: 600;
+}
+
 .section-header {
     margin-bottom: 0.5rem;
 }

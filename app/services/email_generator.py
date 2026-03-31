@@ -15,6 +15,7 @@ def generate_email_reply(
         load_prompt("email_reply"),
         f"Request:\n{text}\n\nStructured fields:\n{extracted_fields.model_dump_json()}",
         request_id=request_id,
+        task_name="email_reply",
     )
     if llm_reply:
         return llm_reply.strip()

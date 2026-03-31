@@ -30,6 +30,7 @@ def _sse_message(data: dict[str, object]) -> str:
 
 
 def _run_snapshot_payload(run) -> dict[str, object]:
+    explainability = json.loads(run.explainability_json)
     return {
         "type": "run_snapshot",
         "run_id": run.id,
@@ -46,6 +47,9 @@ def _run_snapshot_payload(run) -> dict[str, object]:
         "strategy": json.loads(run.strategy_json),
         "extracted_fields": json.loads(run.extracted_fields_json),
         "used_preferences": json.loads(run.used_preferences_json),
+        "explainability": explainability,
+        "diagnostics": explainability.get("diagnostics", []),
+        "provider_status": explainability.get("provider_status"),
     }
 
 
