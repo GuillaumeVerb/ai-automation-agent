@@ -9,7 +9,7 @@ from app.models.feedback import Feedback
 from app.models.preference import Preference
 from app.models.run import Run
 from app.models.timeline_event import TimelineEventRecord
-from app.models.schemas import FeedbackCreate, FeedbackRead, MetricsResponse, RunDetailResponse, ScoreBreakdown
+from app.models.schemas import FeedbackCreate, FeedbackRead, MetricsResponse, RunDetailResponse, ScoreBreakdown, TimelineEvent
 
 
 def _parse_event_timestamp(raw_timestamp: str) -> datetime:
@@ -20,6 +20,27 @@ def create_run_record(session: Session, run: Run) -> Run:
     session.add(run)
     session.flush()
     _persist_timeline_records(session, run)
+    session.commit()
+    session.refresh(run)
+    return run
+
+
+def append_timeline_event(session: Session, run: Run, event: TimelineEvent) -> Run:
+    timeline = json.loads(run.timeline_json)
+    timeline.append(event.model_dump(mode="json"))
+    run.timeline_json = json.dumps(timeline, default=str)
+    session.add(run)
+    session.add(
+        TimelineEventRecord(
+            run_id=run.id,
+            step_name=event.step,
+            step_status=event.status,
+            duration_ms=int(event.duration_ms),
+            short_output=event.output_summary,
+            detail=event.detail,
+            created_at=event.timestamp,
+        )
+    )
     session.commit()
     session.refresh(run)
     return run

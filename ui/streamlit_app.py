@@ -22,7 +22,7 @@ MODE_KEYS = ["suggestion_only", "assisted", "low_risk_auto"]
 INPUT_TYPES = ["email", "text", "json"]
 OUTPUT_TYPES = ["auto", "email_reply", "report"]
 CATEGORY_FILTERS = ["all", "support", "reporting", "commercial", "administratif", "autre"]
-STATUS_FILTERS = ["all", "pending_review", "approved"]
+STATUS_FILTERS = ["all", "processing", "pending_review", "approved", "failed"]
 FEEDBACK_TYPES = ["category", "priority", "tone", "extracted_field"]
 REGENERATE_OUTPUTS = ["report", "email_reply"]
 
@@ -107,7 +107,7 @@ def _risk_tone(risk_level: str) -> str:
 
 
 def _status_tone(status: str) -> str:
-    return {"approved": "green", "pending_review": "amber"}.get(status, "blue")
+    return {"approved": "green", "pending_review": "amber", "failed": "red"}.get(status, "blue")
 
 
 def _mode_index(mode_key: str) -> str:
@@ -157,6 +157,10 @@ def _feedback_type_label(feedback_type: str) -> str:
 
 
 def _recommended_next_action(detail: dict[str, Any]) -> str:
+    if detail["status"] == "processing":
+        return t("next_action.processing")
+    if detail["status"] == "failed":
+        return t("next_action.failed")
     if detail["status"] == "approved":
         return t("next_action.approved")
     if detail["risk_level"] == "high":
@@ -222,6 +226,16 @@ def _current_viewer_state(detail: Optional[dict[str, Any]]) -> dict[str, str]:
             "current": t("live.meta.none"),
             "next": t("step.input_received"),
         }
+    if detail["status"] == "processing":
+        current_step, next_step = _current_and_next_step(detail)
+        return {
+            "badge": t("live.running.badge"),
+            "title": t("live.running.title"),
+            "copy": t("live.processing.copy"),
+            "tone": "blue",
+            "current": current_step,
+            "next": next_step,
+        }
     if detail["status"] == "approved":
         return {
             "badge": t("live.approved.badge"),
@@ -241,68 +255,262 @@ def _current_viewer_state(detail: Optional[dict[str, Any]]) -> dict[str, str]:
     }
 
 
-def _simulate_agent_run(payload: dict[str, Any]) -> tuple[Optional[dict[str, Any]], Optional[str]]:
-    running_steps = [
-        t("step.input_received"),
-        t("step.preprocessed"),
-        t("step.classified"),
-        t("step.extracted"),
-        t("step.strategy_selection"),
-        t("step.generated"),
-        t("step.scored"),
-        t("step.reviewed.pending"),
+def _ordered_step_keys() -> list[str]:
+    return [
+        "input_received",
+        "preprocessed",
+        "classified",
+        "extracted",
+        "strategy_selection",
+        "generated",
+        "scored",
+        "reviewed",
+        "saved",
     ]
+
+
+def _source_step_map(detail: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    source_steps = {item["step"]: item for item in detail["timeline"]}
+    if any(step in source_steps for step in ["generated", "scored", "reviewed", "saved"]):
+        source_steps.setdefault("strategy_selection", {"step": "strategy_selection", "status": "completed", "duration_ms": 0})
+    return source_steps
+
+
+def _current_and_next_step(detail: dict[str, Any]) -> tuple[str, str]:
+    source_steps = _source_step_map(detail)
+    for index, step_key in enumerate(_ordered_step_keys()):
+        if step_key not in source_steps:
+            current = t(f"step.{step_key}")
+            next_step = t(f"step.{_ordered_step_keys()[index + 1]}") if index + 1 < len(_ordered_step_keys()) else t("live.meta.none")
+            return current, next_step
+    return t("step.saved"), t("live.meta.none")
+
+
+def _step_label_from_timeline_event(event: dict[str, Any]) -> str:
+    if event["step"] == "reviewed":
+        return t("step.reviewed.approved") if event.get("status") == "completed" else t("step.reviewed.pending")
+    translated = t(f"step.{event['step']}")
+    if translated == f"step.{event['step']}":
+        return event["step"].replace("_", " ")
+    return translated
+
+
+def _fetch_run_detail_with_retry(run_id: str, attempts: int = 8) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    last_error: Optional[str] = None
+    for _ in range(attempts):
+        detail, error = _safe_call("GET", f"/api/v1/runs/{run_id}")
+        if not error and detail:
+            return detail, None
+        last_error = error
+        time.sleep(0.12)
+    return None, last_error or t("state.run_unavailable", error="timeline not ready")
+
+
+def _render_live_trace_banner(
+    progress_placeholder: Any,
+    detail: dict[str, Any],
+    completed_events: int,
+    total_steps: int,
+) -> None:
+    current_step, next_step = _current_and_next_step(detail)
+    progress_placeholder.markdown(
+        _html_block(
+            f"""
+            <div class="live-banner live-banner-blue">
+                <div class="live-banner-top">
+                    <div class="badge-row">{_badge(t("live.running.badge"), "blue")}</div>
+                    <div class="live-progress-pill">{completed_events}/{total_steps}</div>
+                </div>
+                <div class="live-banner-title">{_escape(t('live.running.title'))}</div>
+                <div class="live-banner-copy">{_escape(t('live.processing.copy'))}</div>
+                <div class="live-meta-grid">
+                    <div class="live-meta-card">
+                        <div class="live-meta-label">{_escape(t('live.meta.current'))}</div>
+                        <div class="live-meta-value">{_escape(current_step)}</div>
+                    </div>
+                    <div class="live-meta-card">
+                        <div class="live-meta-label">{_escape(t('live.meta.next'))}</div>
+                        <div class="live-meta-value">{_escape(next_step)}</div>
+                    </div>
+                </div>
+            </div>
+            """
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def _apply_stream_event(detail: dict[str, Any], event: dict[str, Any]) -> bool:
+    if event.get("type") == "run_status":
+        detail["status"] = event.get("run_status", detail.get("status", "processing"))
+        return False
+    if event.get("type") == "run_snapshot":
+        detail["status"] = event.get("run_status", detail.get("status", "processing"))
+        detail["category"] = event.get("category", detail.get("category", "autre"))
+        detail["confidence"] = event.get("confidence", detail.get("confidence", 0.0))
+        detail["summary"] = event.get("summary", detail.get("summary", ""))
+        detail["generated_output"] = event.get("generated_output", detail.get("generated_output", ""))
+        detail["output_type"] = event.get("output_type", detail.get("output_type", "summary"))
+        detail["automation_score"] = event.get("automation_score", detail.get("automation_score", 0))
+        detail["risk_level"] = event.get("risk_level", detail.get("risk_level", "low"))
+        detail["autonomy_mode"] = event.get("autonomy_mode", detail.get("autonomy_mode", detail.get("requested_mode", "assisted")))
+        detail["estimated_time_saved_minutes"] = event.get(
+            "estimated_time_saved_minutes",
+            detail.get("estimated_time_saved_minutes", 0),
+        )
+        detail["strategy"] = event.get("strategy", detail.get("strategy", []))
+        detail["extracted_fields"] = event.get("extracted_fields", detail.get("extracted_fields", {}))
+        detail["used_preferences"] = event.get("used_preferences", detail.get("used_preferences", []))
+        return True
+    if event.get("type") != "timeline_event":
+        return False
+
+    detail["status"] = event.get("run_status", detail.get("status", "processing"))
+    timeline = detail.setdefault("timeline", [])
+    event_key = (event.get("step"), event.get("status"), event.get("timestamp"))
+    existing_keys = {
+        (item.get("step"), item.get("status"), item.get("timestamp"))
+        for item in timeline
+    }
+    if event_key in existing_keys:
+        return False
+    timeline.append(
+        {
+            "step": event["step"],
+            "status": event["status"],
+            "detail": event.get("detail", ""),
+            "timestamp": event.get("timestamp"),
+            "duration_ms": event.get("duration_ms", 0),
+            "output_summary": event.get("output_summary", ""),
+        }
+    )
+    return True
+
+
+def _snapshot_status_message(detail: dict[str, Any]) -> str:
+    if detail.get("automation_score", 0) > 0:
+        return t("live.snapshot.score", score=detail["automation_score"], mode=_mode_label(detail["autonomy_mode"]))
+    if detail.get("generated_output"):
+        return t("live.snapshot.output", output=_output_label(detail["output_type"]))
+    if detail.get("summary") and detail["summary"] != "Traitement en cours...":
+        return t("live.snapshot.summary")
+    if detail.get("category") and detail.get("confidence", 0) > 0:
+        return t(
+            "live.snapshot.classification",
+            category=_category_label(detail["category"]),
+            confidence=f"{detail['confidence']:.0%}",
+        )
+    return t("live.snapshot.default")
+
+
+def _stream_run_trace(
+    run_id: str,
+    detail: dict[str, Any],
+    progress_placeholder: Any,
+    status_box: Any,
+    progress_bar: Any,
+) -> tuple[dict[str, Any], Optional[str]]:
+    total_steps = len(_ordered_step_keys())
+    completed_events = max(len([event for event in detail.get("timeline", []) if event["step"] != "saved"]), 1)
+    _render_live_trace_banner(progress_placeholder, detail, completed_events, total_steps)
+
+    try:
+        with requests.get(
+            f"{API_BASE_URL}/api/v1/runs/{run_id}/stream",
+            stream=True,
+            timeout=(5, 60),
+        ) as response:
+            response.raise_for_status()
+            for raw_line in response.iter_lines(decode_unicode=True):
+                if not raw_line or not raw_line.startswith("data: "):
+                    continue
+                payload = json.loads(raw_line[6:])
+                if payload.get("type") == "error":
+                    return detail, payload.get("message", t("state.run_unavailable", error="stream error"))
+                appended = _apply_stream_event(detail, payload)
+                st.session_state["last_run_detail"] = detail
+                completed_events = max(len([event for event in detail.get("timeline", []) if event["step"] != "saved"]), 1)
+                _render_live_trace_banner(progress_placeholder, detail, completed_events, total_steps)
+                progress_bar.progress(min(int((completed_events / total_steps) * 100), 96))
+                if appended and status_box and payload.get("type") == "timeline_event":
+                    status_box.write(
+                        f"{_step_label_from_timeline_event(payload)}: {payload.get('detail', '')}".strip(": ")
+                    )
+                elif appended and status_box and payload.get("type") == "run_snapshot":
+                    status_box.write(_snapshot_status_message(detail))
+                if payload.get("type") == "run_status" and payload.get("run_status") != "processing":
+                    break
+    except (requests.RequestException, json.JSONDecodeError) as exc:
+        return detail, str(exc)
+
+    final_detail, detail_error = _fetch_run_detail_with_retry(run_id)
+    if final_detail:
+        return final_detail, None
+    return detail, detail_error
+
+
+def _create_run_with_trace(payload: dict[str, Any]) -> tuple[Optional[str], Optional[dict[str, Any]], Optional[str]]:
     progress_placeholder = st.empty()
     status_box = st.status(t("live.status_container"), expanded=True) if hasattr(st, "status") else None
     progress_bar = st.progress(0)
 
     try:
-        for index, current_step in enumerate(running_steps[:5], start=1):
-            next_step = running_steps[index] if index < len(running_steps) else t("live.meta.none")
-            progress_placeholder.markdown(
-                _html_block(
-                    f"""
-                    <div class="live-banner live-banner-blue">
-                        <div class="live-banner-top">
-                            <div class="badge-row">{_badge(t("live.running.badge"), "blue")}</div>
-                            <div class="live-progress-pill">{index}/{len(running_steps)}</div>
+        progress_placeholder.markdown(
+            _html_block(
+                f"""
+                <div class="live-banner live-banner-blue">
+                    <div class="live-banner-top">
+                        <div class="badge-row">{_badge(t("live.running.badge"), "blue")}</div>
+                        <div class="live-progress-pill">0/1</div>
+                    </div>
+                    <div class="live-banner-title">{_escape(t('loading.title'))}</div>
+                    <div class="live-banner-copy">{_escape(t('loading.copy'))}</div>
+                    <div class="live-meta-grid">
+                        <div class="live-meta-card">
+                            <div class="live-meta-label">{_escape(t('live.meta.current'))}</div>
+                            <div class="live-meta-value">{_escape(t('step.input_received'))}</div>
                         </div>
-                        <div class="live-banner-title">{_escape(t('live.running.title'))}</div>
-                        <div class="live-banner-copy">{_escape(t('live.running.copy'))}</div>
-                        <div class="live-meta-grid">
-                            <div class="live-meta-card">
-                                <div class="live-meta-label">{_escape(t('live.meta.current'))}</div>
-                                <div class="live-meta-value">{_escape(current_step)}</div>
-                            </div>
-                            <div class="live-meta-card">
-                                <div class="live-meta-label">{_escape(t('live.meta.next'))}</div>
-                                <div class="live-meta-value">{_escape(next_step)}</div>
-                            </div>
+                        <div class="live-meta-card">
+                            <div class="live-meta-label">{_escape(t('live.meta.next'))}</div>
+                            <div class="live-meta-value">{_escape(t('live.meta.none'))}</div>
                         </div>
                     </div>
-                    """
-                ),
-                unsafe_allow_html=True,
-            )
-            if status_box:
-                status_box.write(f"{current_step}")
-            progress_bar.progress(min(int((index / len(running_steps)) * 100), 82))
-            time.sleep(0.11)
+                </div>
+                """
+            ),
+            unsafe_allow_html=True,
+        )
+        if status_box:
+            status_box.write(t("loading.title"))
+        progress_bar.progress(8)
 
-        data, error = _safe_call("POST", "/api/v1/runs", payload)
+        created, error = _safe_call("POST", "/api/v1/runs", payload)
         if error:
             if status_box:
                 status_box.update(label=t("state.api_unavailable", error=error), state="error")
             progress_placeholder.empty()
             progress_bar.empty()
-            return None, error
+            return None, None, error
+
+        run_id = created["run_id"]
+        detail, detail_error = _fetch_run_detail_with_retry(run_id)
+        if detail_error or not detail:
+            if status_box:
+                status_box.update(label=t("notice.run_created"), state="complete")
+            progress_placeholder.empty()
+            progress_bar.empty()
+            return run_id, None, detail_error
+
+        detail, detail_error = _stream_run_trace(run_id, detail, progress_placeholder, status_box, progress_bar)
+        if detail_error:
+            return run_id, detail, detail_error
 
         progress_bar.progress(100)
         if status_box:
             status_box.update(label=t("notice.run_created"), state="complete")
         progress_placeholder.empty()
         progress_bar.empty()
-        return data, None
+        return run_id, detail, None
     finally:
         if not hasattr(st, "status"):
             progress_placeholder.empty()
@@ -310,6 +518,11 @@ def _simulate_agent_run(payload: dict[str, Any]) -> tuple[Optional[dict[str, Any
 
 
 def _localized_step_output(step_key: str, detail: dict[str, Any]) -> str:
+    source_steps = _source_step_map(detail)
+    if step_key not in source_steps and detail["status"] == "processing":
+        if step_key == "strategy_selection":
+            return t("step.output.strategy_selection.pending")
+        return t("step.output.pending")
     if step_key == "input_received":
         return t("step.output.input_received", input_type=_input_type_label(detail["input_type"]))
     if step_key == "preprocessed":
@@ -342,24 +555,38 @@ def _localized_step_output(step_key: str, detail: dict[str, Any]) -> str:
 
 
 def _build_run_steps(detail: dict[str, Any]) -> list[dict[str, Any]]:
-    source_steps = {item["step"]: item for item in detail["timeline"]}
+    source_steps = _source_step_map(detail)
     review_label = t("step.reviewed.approved") if detail["status"] == "approved" else t("step.reviewed.pending")
 
-    ordered_steps = [
-        {"step": "input_received", "status": "completed", "duration_ms": source_steps.get("input_received", {}).get("duration_ms", 0)},
-        {"step": "preprocessed", "status": "completed", "duration_ms": source_steps.get("preprocessed", {}).get("duration_ms", 0)},
-        {"step": "classified", "status": "completed", "duration_ms": source_steps.get("classified", {}).get("duration_ms", 0)},
-        {"step": "extracted", "status": "completed", "duration_ms": source_steps.get("extracted", {}).get("duration_ms", 0)},
-        {"step": "strategy_selection", "status": "completed", "duration_ms": 0},
-        {"step": "generated", "status": "completed", "duration_ms": source_steps.get("generated", {}).get("duration_ms", 0)},
-        {"step": "scored", "status": "completed", "duration_ms": source_steps.get("scored", {}).get("duration_ms", 0)},
-        {
-            "step": "reviewed",
-            "status": "completed" if detail["status"] == "approved" else "pending",
-            "duration_ms": source_steps.get("reviewed", {}).get("duration_ms", 0),
-            "display_label": review_label,
-        },
-    ]
+    ordered_steps = []
+    current_processing_step, _ = _current_and_next_step(detail)
+    for step_key in _ordered_step_keys()[:-1]:
+        if step_key in source_steps:
+            source_status = source_steps[step_key].get("status", "completed")
+            display_status = "completed" if source_status == "completed" else source_status
+            if step_key == "reviewed" and detail["status"] == "approved":
+                display_status = "completed"
+            ordered_steps.append(
+                {
+                    "step": step_key,
+                    "status": display_status,
+                    "duration_ms": source_steps[step_key].get("duration_ms", 0),
+                    "display_label": review_label if step_key == "reviewed" else None,
+                }
+            )
+            continue
+
+        pending_status = "pending"
+        if detail["status"] == "processing" and t(f"step.{step_key}") == current_processing_step:
+            pending_status = "processing"
+        ordered_steps.append(
+            {
+                "step": step_key,
+                "status": pending_status,
+                "duration_ms": 0,
+                "display_label": review_label if step_key == "reviewed" else None,
+            }
+        )
 
     normalized = []
     for item in ordered_steps:
@@ -551,7 +778,7 @@ def _render_input_panel(detail: Optional[dict[str, Any]]) -> None:
                 """,
                 unsafe_allow_html=True,
             )
-            data, error = _simulate_agent_run(
+            run_id, detail, error = _create_run_with_trace(
                 {
                     "text": sample_text,
                     "input_type": st.session_state["input_type_value"],
@@ -562,10 +789,13 @@ def _render_input_panel(detail: Optional[dict[str, Any]]) -> None:
                 }
             )
             loading_placeholder.empty()
+            if run_id:
+                st.session_state["last_run_id"] = run_id
+                if detail:
+                    st.session_state["last_run_detail"] = detail
             if error:
-                st.error(t("state.api_unavailable", error=error))
+                st.warning(error)
             else:
-                st.session_state["last_run_id"] = data["run_id"]
                 st.session_state["run_notice"] = t("notice.run_created")
                 st.rerun()
 
@@ -602,8 +832,28 @@ def _render_run_viewer(detail: Optional[dict[str, Any]]) -> None:
         return
 
     viewer_state = _current_viewer_state(detail)
-    completed_steps = 8 if detail["status"] == "pending_review" else 9
+    built_steps = _build_run_steps(detail)
     total_steps = 9
+    source_steps = _source_step_map(detail)
+    if detail["status"] == "processing":
+        active_step = next((key for key in _ordered_step_keys() if key not in _source_step_map(detail)), "saved")
+    elif detail["status"] == "pending_review":
+        active_step = "reviewed"
+    else:
+        active_step = "saved"
+    saved_status = "completed" if "saved" in source_steps else ("processing" if detail["status"] == "processing" and active_step == "saved" else "pending")
+    steps_payload = built_steps + [
+        {
+            "short": STEP_META["saved"]["short"],
+            "label": t("step.saved"),
+            "status": saved_status,
+            "status_label": _status_label(saved_status),
+            "duration_ms": source_steps.get("saved", {}).get("duration_ms", 0),
+            "output_summary": t("step.output.saved") if "saved" in source_steps else t("step.output.pending"),
+            "step_key": "saved",
+        }
+    ]
+    completed_steps = len([step for step in steps_payload if step["status"] == "completed"])
     top_badges = "".join(
         [
             _badge(t("run.badge.id", run_id=detail["run_id"][:8]), "blue"),
@@ -662,19 +912,6 @@ def _render_run_viewer(detail: Optional[dict[str, Any]]) -> None:
         unsafe_allow_html=True,
     )
 
-    active_step = "reviewed" if detail["status"] == "pending_review" else "saved"
-    source_steps = {item["step"]: item for item in detail["timeline"]}
-    steps_payload = _build_run_steps(detail)
-    steps_payload.append(
-        {
-            "short": STEP_META["saved"]["short"],
-            "label": t("step.saved"),
-            "status": _status_label("completed"),
-            "duration_ms": source_steps.get("saved", {}).get("duration_ms", 0),
-            "output_summary": t("step.output.saved"),
-            "step_key": "saved",
-        }
-    )
     steps_html = []
     for step in steps_payload:
         step_key = step.get("step_key") or next(
@@ -687,6 +924,8 @@ def _render_run_viewer(detail: Optional[dict[str, Any]]) -> None:
         if is_active:
             dot_class = "timeline-dot timeline-dot-pending pulse-dot"
             row_class = "timeline-step-card timeline-step-card-active"
+        elif step["status"] in {"pending", "processing"}:
+            dot_class = "timeline-dot timeline-dot-neutral"
         steps_html.append(
             _html_block(
                 f"""
@@ -878,6 +1117,18 @@ def _render_result_sections(detail: Optional[dict[str, Any]], feedback_items: li
         )
         return
 
+    if detail["status"] == "processing":
+        st.markdown(
+            f"""
+            <div class="empty-state">
+                <div class="empty-title">{_escape(t('result.processing.title'))}</div>
+                <p class="empty-copy">{_escape(t('result.processing.copy'))}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
     st.markdown(
         f"""
         <div class="strong-card">
@@ -1008,6 +1259,10 @@ def _render_action_panel(detail: Optional[dict[str, Any]]) -> None:
     if not detail:
         return
 
+    if detail["status"] == "processing":
+        st.info(t("actions.processing_locked"))
+        return
+
     st.markdown(
         f"""
         <div class="strong-card">
@@ -1121,7 +1376,10 @@ def _render_history_page(runs: list[dict[str, Any]]) -> None:
     kpis = st.columns(4)
     kpis[0].metric(t("history.kpi.runs"), len(filtered))
     kpis[1].metric(t("history.kpi.approved"), len([item for item in filtered if item["status"] == "approved"]))
-    kpis[2].metric(t("history.kpi.pending"), len([item for item in filtered if item["status"] == "pending_review"]))
+    kpis[2].metric(
+        t("history.kpi.pending"),
+        len([item for item in filtered if item["status"] in {"processing", "pending_review"}]),
+    )
     average_score = round(sum(item["automation_score"] for item in filtered) / len(filtered), 1) if filtered else 0
     kpis[3].metric(t("history.kpi.avg_score"), average_score)
 
@@ -1286,6 +1544,7 @@ def _initialize_state() -> None:
     st.session_state.setdefault("input_type_value", "email")
     st.session_state.setdefault("mode_value", "assisted")
     st.session_state.setdefault("preferred_output_value", "auto")
+    st.session_state.setdefault("last_run_detail", None)
     st.session_state.setdefault("run_notice", "")
     st.session_state.setdefault("escalation_note", "")
 
@@ -1294,11 +1553,17 @@ def _fetch_current_run() -> tuple[Optional[dict[str, Any]], list[dict[str, Any]]
     run_id = st.session_state.get("last_run_id")
     if not run_id:
         return None, []
+    cached_detail = st.session_state.get("last_run_detail")
     detail, detail_error = _safe_call("GET", f"/api/v1/runs/{run_id}")
     feedback_items, feedback_error = _safe_call("GET", f"/api/v1/runs/{run_id}/feedback")
     if detail_error:
-        st.error(t("state.run_unavailable", error=detail_error))
-        return None, []
+        if cached_detail and cached_detail.get("run_id") == run_id:
+            detail = cached_detail
+        else:
+            st.error(t("state.run_unavailable", error=detail_error))
+            return None, []
+    else:
+        st.session_state["last_run_detail"] = detail
     if feedback_error:
         feedback_items = []
     return detail, feedback_items

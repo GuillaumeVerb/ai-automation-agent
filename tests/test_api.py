@@ -1,6 +1,20 @@
+import time
+
 from fastapi.testclient import TestClient
 
 from app.main import app
+
+
+def _wait_for_run_completion(client: TestClient, run_id: str, attempts: int = 20) -> dict:
+    detail = {}
+    for _ in range(attempts):
+        response = client.get(f"/api/v1/runs/{run_id}")
+        assert response.status_code == 200
+        detail = response.json()
+        if detail["status"] != "processing":
+            return detail
+        time.sleep(0.05)
+    return detail
 
 
 def test_create_get_feedback_and_metrics_flow():
@@ -13,12 +27,10 @@ def test_create_get_feedback_and_metrics_flow():
                 "mode": "assisted",
             },
         )
-        assert create_response.status_code == 201
+        assert create_response.status_code == 202
         created = create_response.json()
 
-        detail_response = client.get(f"/api/v1/runs/{created['run_id']}")
-        assert detail_response.status_code == 200
-        detail = detail_response.json()
+        detail = _wait_for_run_completion(client, created["run_id"])
         assert detail["category"] in {"support", "reporting", "commercial", "administratif", "autre"}
         assert detail["requested_mode"] == "assisted"
         assert detail["autonomy_mode"] in {"suggestion_only", "assisted", "low_risk_auto"}
@@ -43,10 +55,11 @@ def test_create_get_feedback_and_metrics_flow():
             f"/api/v1/runs/{created['run_id']}/regenerate",
             json={"preferred_output": "report", "strategy_hint": "report"},
         )
-        assert regenerate_response.status_code == 201
+        assert regenerate_response.status_code == 202
         regenerated = regenerate_response.json()
         assert regenerated["run_id"] != created["run_id"]
-        assert "generate_report" in regenerated["strategy"]
+        regenerated_detail = _wait_for_run_completion(client, regenerated["run_id"])
+        assert "generate_report" in regenerated_detail["strategy"]
 
         approve_response = client.post(f"/api/v1/runs/{created['run_id']}/approve")
         assert approve_response.status_code == 200
@@ -61,3 +74,26 @@ def test_create_get_feedback_and_metrics_flow():
         assert metrics["total_runs"] >= 1
         assert "average_step_latency_ms" in metrics
         assert "autonomy_mode_distribution" in metrics
+
+
+def test_run_stream_endpoint_emits_timeline_events():
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/v1/runs",
+            json={
+                "text": "Please prepare a short operations report and keep the response concise.",
+                "input_type": "text",
+                "mode": "assisted",
+            },
+        )
+        assert create_response.status_code == 202
+        run_id = create_response.json()["run_id"]
+
+        with client.stream("GET", f"/api/v1/runs/{run_id}/stream") as response:
+            assert response.status_code == 200
+            payload = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in response.iter_text())
+
+        assert "timeline_event" in payload
+        assert "run_snapshot" in payload
+        assert '"step": "input_received"' in payload or '"step":"input_received"' in payload
+        assert '"type": "run_status"' in payload or '"type":"run_status"' in payload
