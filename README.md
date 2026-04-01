@@ -77,6 +77,28 @@ Fichiers UI principaux:
 - `ui/streamlit_app.py`
 - `ui/design_system.py`
 
+## Aperçu visuel
+
+Quelques captures utiles pour comprendre rapidement le positionnement produit du MVP:
+
+### Cockpit principal
+
+Vue d'ensemble du produit, avec hero, statut du run, mode demandé et structure en cockpit.
+
+![Cockpit principal](artifacts/screenshots/01-home.png)
+
+### Exécution live
+
+Le run expose maintenant la progression, les micro-métriques, la console opérateur et les artefacts utiles pendant l'exécution.
+
+![Exécution live](artifacts/screenshots/02-execution-live.png)
+
+### Historique opérateur
+
+L'historique sert aussi de mini console ops avec statuts, diagnostics, score et filtres runtime.
+
+![Historique opérateur](artifacts/screenshots/05-historique.png)
+
 ## Architecture
 
 ```text
