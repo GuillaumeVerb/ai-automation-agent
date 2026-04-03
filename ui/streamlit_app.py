@@ -1,5 +1,6 @@
 import html
 import json
+import sys
 import time
 import textwrap
 from pathlib import Path
@@ -9,6 +10,10 @@ import pandas as pd
 import requests
 import streamlit as st
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from app.core.config import get_settings
 from ui.design_system import GLOBAL_CSS, STEP_META
 from ui.i18n import available_languages, get_lang, init_i18n, t
@@ -16,7 +21,7 @@ from ui.i18n import available_languages, get_lang, init_i18n, t
 
 settings = get_settings()
 API_BASE_URL = settings.ui_api_base_url.rstrip("/")
-DEMO_REQUESTS_PATH = Path(__file__).resolve().parents[1] / "data" / "demo_requests.json"
+DEMO_REQUESTS_PATH = PROJECT_ROOT / "data" / "demo_requests.json"
 PAGE_KEYS = ["execution", "result", "history", "analytics"]
 MODE_KEYS = ["suggestion_only", "assisted", "low_risk_auto"]
 INPUT_TYPES = ["email", "text", "json"]
